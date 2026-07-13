@@ -156,8 +156,42 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# ─────────────────────────────────────────────
+# Media / Image Storage
+# ─────────────────────────────────────────────
+#
+# Strategy: local filesystem in dev, Cloudinary in production.
+#
+# "Production-like" is defined as: DATABASE_URL is set in the
+# environment (meaning you're pointing at Neon, not the local
+# SQLite fallback). This keeps local dev fast and avoids burning
+# through Cloudinary's free-tier quota on every test cycle or
+# dev iteration.
+#
+# The ImageField definition on Shop.logo and Product.image stays
+# identical — storage is resolved at runtime by DEFAULT_FILE_STORAGE,
+# so no model changes are needed when switching backends.
+ 
+import cloudinary
+ 
+DATABASE_URL = config("DATABASE_URL", default=None)
+ 
+if DATABASE_URL:
+    # ── Production: Cloudinary ──────────────────
+    cloudinary.config(
+        CLOUDINARY=config("CLOUDINARY_URL"),
+        secure=True,   # always serve images over HTTPS
+    )
+    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+    MEDIA_URL = "/media/"   # kept for template compatibility; actual URLs come from Cloudinary CDN
+ 
+else:
+    # ── Development: local filesystem ──────────
+    # Images land in <BASE_DIR>/media/ and are served by Django's
+    # dev server via MEDIA_URL. No Cloudinary credentials needed
+    # for local dev, and test runs don't consume quota.
+    MEDIA_URL  = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
 
 
 # ─────────────────────────────────────────────
