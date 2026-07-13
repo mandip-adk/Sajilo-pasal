@@ -678,4 +678,69 @@ class StockFieldTypeTests(TestCase):
         p.refresh_from_db()
         self.assertEqual(p.stock_quantity, -10)
 
+ # ─────────────────────────────────────────────
+# Day 7 — Cloudinary regression guards
+# ─────────────────────────────────────────────
+
+class ProductImageValidatorCloudinaryRegressionTests(TestCase):
+    """
+    Confirms validate_product_image still rejects bad files after
+    Cloudinary config — validators must fire BEFORE the storage
+    backend sees the file.
+    """
+
+    def test_valid_jpeg_still_passes_after_cloudinary_config(self):
+        content = make_test_image_bytes("JPEG")
+        upload = SimpleUploadedFile("p.jpg", content, content_type="image/jpeg")
+        validate_product_image(upload)  # must not raise
+
+    def test_disguised_tiff_still_rejected(self):
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (10, 10)).save(buf, format="TIFF")
+        buf.seek(0)
+        upload = SimpleUploadedFile("p.jpg", buf.read(), content_type="image/jpeg")
+        with self.assertRaises(ValidationError):
+            validate_product_image(upload)
+
+    def test_oversized_still_rejected(self):
+        content = make_test_image_bytes("JPEG")
+        upload = SimpleUploadedFile("p.jpg", content, content_type="image/jpeg")
+        upload.size = 6 * 1024 * 1024
+        with self.assertRaises(ValidationError):
+            validate_product_image(upload)
+
+
+class CompressorJsProductTemplateTests(TestCase):
+    """
+    Confirms Compressor.js is rendered in product upload forms
+    but not on non-upload pages.
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.owner = make_verified_user("prodcompressor@example.com")
+        self.shop = make_shop(self.owner)
+        self.category = make_category(self.shop)
+        self.client.login(username=self.owner.email, password=VALID_PASSWORD)
+
+    def test_product_create_form_includes_compressorjs(self):
+        resp = self.client.get(
+            reverse("products:create", args=[self.shop.slug, self.category.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "compressorjs")
+        self.assertContains(resp, "initImageCompressor")
+
+    def test_product_edit_form_includes_compressorjs(self):
+        product = Product.objects.create(
+            category=self.category, name="Test Product", price=Decimal("100")
+        )
+        resp = self.client.get(
+            reverse("products:edit", args=[self.shop.slug, self.category.id, product.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "compressorjs")
+        self.assertContains(resp, "initImageCompressor")
         
+               
