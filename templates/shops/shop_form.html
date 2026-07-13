@@ -35,18 +35,30 @@
             {% endif %}
           </div>
 
+          <!-- Logo upload with client-side compression -->
           <div class="mb-3">
             <label class="form-label fw-semibold">Logo</label>
+
             {% if is_edit and shop.logo %}
               <div class="mb-2">
-                <img src="{{ shop.logo.url }}" alt="Current logo" style="height: 60px; border-radius: 8px;">
+                <img id="logo-preview" src="{{ shop.logo.url }}"
+                     alt="Current logo" style="height: 60px; border-radius: 8px;">
+              </div>
+            {% else %}
+              <div class="mb-2">
+                <img id="logo-preview" src="" alt=""
+                     style="height: 60px; border-radius: 8px; display: none;">
               </div>
             {% endif %}
+
             {{ form.logo }}
             {% if form.logo.errors %}
               <div class="text-danger small mt-1">{{ form.logo.errors.0 }}</div>
             {% endif %}
-            <div class="form-text">JPG, PNG, or WEBP. Max 5MB.</div>
+            <div class="form-text">
+              JPG, PNG, or WEBP. Max 5MB.
+              <span id="logo-compress-status" class="text-muted ms-2" style="display:none;"></span>
+            </div>
           </div>
 
           <div class="mb-3">
@@ -87,5 +99,21 @@
 
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Compressor.js — client-side image resize/compress before upload -->
+<script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
+{% load static %}
+<script src="{% static 'js/image_compressor.js' %}"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    initImageCompressor(
+      "{{ form.logo.id_for_label }}",  // file input id
+      "logo-preview",                   // preview image id
+      "logo-compress-status"            // status text span id
+    );
+  });
+</script>
 {% endblock %}
 

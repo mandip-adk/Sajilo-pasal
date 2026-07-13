@@ -19,35 +19,59 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Product Name</label>
             {{ form.name }}
-            {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors.0 }}</div>{% endif %}
+            {% if form.name.errors %}
+              <div class="text-danger small mt-1">{{ form.name.errors.0 }}</div>
+            {% endif %}
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Description</label>
             {{ form.description }}
-            {% if form.description.errors %}<div class="text-danger small mt-1">{{ form.description.errors.0 }}</div>{% endif %}
+            {% if form.description.errors %}
+              <div class="text-danger small mt-1">{{ form.description.errors.0 }}</div>
+            {% endif %}
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Price (Rs.)</label>
             {{ form.price }}
-            {% if form.price.errors %}<div class="text-danger small mt-1">{{ form.price.errors.0 }}</div>{% endif %}
+            {% if form.price.errors %}
+              <div class="text-danger small mt-1">{{ form.price.errors.0 }}</div>
+            {% endif %}
           </div>
 
+          <!-- Product image upload with client-side compression -->
           <div class="mb-3">
             <label class="form-label fw-semibold">Image</label>
+
             {% if is_edit and product.image %}
-              <div class="mb-2"><img src="{{ product.image.url }}" style="height: 60px; border-radius: 8px;"></div>
+              <div class="mb-2">
+                <img id="product-img-preview" src="{{ product.image.url }}"
+                     style="height: 80px; border-radius: 8px;" alt="Current image">
+              </div>
+            {% else %}
+              <div class="mb-2">
+                <img id="product-img-preview" src="" alt=""
+                     style="height: 80px; border-radius: 8px; display: none;">
+              </div>
             {% endif %}
+
             {{ form.image }}
-            {% if form.image.errors %}<div class="text-danger small mt-1">{{ form.image.errors.0 }}</div>{% endif %}
-            <div class="form-text">JPG, PNG, or WEBP. Max 5MB.</div>
+            {% if form.image.errors %}
+              <div class="text-danger small mt-1">{{ form.image.errors.0 }}</div>
+            {% endif %}
+            <div class="form-text">
+              JPG, PNG, or WEBP. Max 5MB.
+              <span id="product-img-compress-status" class="text-muted ms-2" style="display:none;"></span>
+            </div>
           </div>
 
           <div class="mb-3">
             <label class="form-label fw-semibold">Stock Quantity</label>
             {{ form.stock_quantity }}
-            {% if form.stock_quantity.errors %}<div class="text-danger small mt-1">{{ form.stock_quantity.errors.0 }}</div>{% endif %}
+            {% if form.stock_quantity.errors %}
+              <div class="text-danger small mt-1">{{ form.stock_quantity.errors.0 }}</div>
+            {% endif %}
           </div>
 
           <div class="form-check mb-2">
@@ -69,9 +93,11 @@
               {% if is_edit %}Save Changes{% else %}Add Product{% endif %}
             </button>
           </div>
+
         </form>
 
-        <a href="{% url 'products:list' shop.slug category.id %}" class="btn btn-link text-decoration-none ps-0 mt-2">
+        <a href="{% url 'products:list' shop.slug category.id %}"
+           class="btn btn-link text-decoration-none ps-0 mt-2">
           <i class="bi bi-arrow-left me-1"></i>Back to products
         </a>
 
@@ -82,3 +108,18 @@
 </div>
 {% endblock %}
 
+{% block extra_js %}
+<!-- Compressor.js — client-side image resize/compress before upload -->
+<script src="https://cdn.jsdelivr.net/npm/compressorjs@1.2.1/dist/compressor.min.js"></script>
+{% load static %}
+<script src="{% static 'js/image_compressor.js' %}"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    initImageCompressor(
+      "{{ form.image.id_for_label }}",       // file input id
+      "product-img-preview",                  // preview image id
+      "product-img-compress-status"           // status text span id
+    );
+  });
+</script>
+{% endblock %}
