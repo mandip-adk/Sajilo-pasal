@@ -24,6 +24,7 @@ Run with:
 """
 
 import io
+from django.urls import reverse
 from unittest import mock
 
 from django.core.exceptions import ValidationError
@@ -585,4 +586,147 @@ class CompressorJsShopTemplateTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertNotContains(resp, "compressorjs")
 
-        
+
+"""
+Day 9 — Public menu tests.
+Append these classes to shops/tests.py.
+
+Covers checklist section 5:
+  - Open the public menu without logging in
+  - Check images display
+  - Check unavailable items are shown grayed out (not hidden)
+  - Verify menu only shows active shops
+"""
+
+from decimal import Decimal
+
+
+# ─────────────────────────────────────────────
+# Day 9 — Public menu view
+# ─────────────────────────────────────────────
+
+class PublicMenuTests(TestCase):
+    """
+    The public menu at /shop/<slug>/ is the customer-facing page.
+    No login required — anyone can access it.
+    """
+
+    def setUp(self):
+        self.owner = make_verified_user("menutest@example.com")
+        self.shop = make_shop(self.owner, "Sharma Kirana Pasal")
+
+        from categories.models import Category
+        from products.models import Product
+
+        self.category = Category.objects.create(shop=self.shop, name="Drinks")
+        self.coke = Product.objects.create(
+            category=self.category,
+            name="Coke",
+            price=Decimal("60.00"),
+            stock_quantity=10,
+            is_available=True,
+        )
+        self.sold_out = Product.objects.create(
+            category=self.category,
+            name="Sprite",
+            price=Decimal("60.00"),
+            stock_quantity=0,
+            is_available=True,
+            allow_over_order=False,
+        )
+        self.unavailable = Product.objects.create(
+            category=self.category,
+            name="Fanta",
+            price=Decimal("60.00"),
+            stock_quantity=5,
+            is_available=False,
+        )
+
+    def _menu_url(self):
+        return reverse("menu:detail", args=[self.shop.slug])
+
+    def test_menu_accessible_without_login(self):
+        """Checklist item: open the public menu without logging in."""
+        anon = Client()
+        resp = anon.get(self._menu_url())
+        self.assertEqual(resp.status_code, 200)
+
+    def test_menu_shows_shop_name(self):
+        resp = self.client.get(self._menu_url())
+        self.assertContains(resp, self.shop.name)
+
+    def test_menu_shows_all_products_including_unavailable(self):
+        """
+        Checklist item: unavailable items are shown grayed out,
+        not hidden — customers can see what exists but can't order it.
+        """
+        resp = self.client.get(self._menu_url())
+        self.assertContains(resp, "Coke")
+        self.assertContains(resp, "Sprite")
+        self.assertContains(resp, "Fanta")
+
+    def test_unavailable_product_shows_unavailable_label(self):
+        resp = self.client.get(self._menu_url())
+        self.assertContains(resp, "Unavailable")
+
+    def test_out_of_stock_product_shows_out_of_stock_label(self):
+        resp = self.client.get(self._menu_url())
+        self.assertContains(resp, "Out of stock")
+
+    def test_inactive_shop_returns_404(self):
+        self.shop.is_active = False
+        self.shop.save()
+        resp = self.client.get(self._menu_url())
+        self.assertEqual(resp.status_code, 404)
+
+    def test_nonexistent_slug_returns_404(self):
+        resp = self.client.get(reverse("menu:detail", args=["does-not-exist"]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_empty_category_not_shown(self):
+        """Categories with no products should not appear as empty
+        section headers on the menu."""
+        from categories.models import Category
+        empty_cat = Category.objects.create(shop=self.shop, name="Empty Category")
+        resp = self.client.get(self._menu_url())
+        self.assertNotContains(resp, "Empty Category")
+
+    def test_menu_uses_single_page_layout(self):
+        """All categories and products are on one page — no pagination,
+        no tab-switching required."""
+        from categories.models import Category
+        from products.models import Product
+        second_cat = Category.objects.create(shop=self.shop, name="Snacks")
+        Product.objects.create(
+            category=second_cat, name="Chips",
+            price=Decimal("30"), stock_quantity=5,
+        )
+        resp = self.client.get(self._menu_url())
+        # Both categories must appear in a single response
+        self.assertContains(resp, "Drinks")
+        self.assertContains(resp, "Snacks")
+        self.assertContains(resp, "Chips")
+
+    def test_product_price_displayed_with_rs_prefix(self):
+        resp = self.client.get(self._menu_url())
+        self.assertContains(resp, "Rs.")
+
+    def test_menu_url_resolves_correctly_from_get_menu_url(self):
+        """
+        Day 4 deferred promise: Shop.get_menu_url() now uses reverse()
+        and must resolve to the same URL as the menu:detail pattern.
+        """
+        expected = reverse("menu:detail", args=[self.shop.slug])
+        self.assertEqual(self.shop.get_menu_url(), expected)
+
+    def test_short_redirect_leads_to_public_menu(self):
+        """
+        Full QR journey: /s/<id>/ → /shop/<slug>/ → renders menu.
+        Verifies Day 8's short redirect and Day 9's menu view are
+        correctly wired together end-to-end.
+        """
+        anon = Client()
+        redirect_url = reverse("qr_manager:redirect", args=[self.shop.pk])
+        resp = anon.get(redirect_url, follow=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.shop.name)
