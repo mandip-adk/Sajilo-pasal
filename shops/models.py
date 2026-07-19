@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, transaction, IntegrityError
 from django.utils.text import slugify
+from django.urls import reverse  
 
 
 # ── Validators ───────────────────────────────────────────
@@ -193,14 +194,9 @@ class Shop(models.Model):
     # ── Convenience ──────────────────────────────────────
 
     @property
-    def menu_url_path(self):
-        """
-        Relative path to the public customer-facing menu.
+    def get_menu_url(self):
 
-        Hardcoded for now — switches to reverse("menu:detail", ...)
-        on Day 9 once that URL pattern actually exists. Revisit then.
-        """
-        return f"/shop/{self.slug}/"
+        return reverse("menu:detail", kwargs={"slug": self.slug})
 
     def get_shop_type_display_nepali(self):
         """

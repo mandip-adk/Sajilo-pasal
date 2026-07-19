@@ -28,6 +28,7 @@ urlpatterns = [
     path("shops/", include("categories.urls", namespace="categories")),
     path("shops/", include("products.urls", namespace="products")),
     path("s/", include("qr_manager.urls", namespace="qr_manager")),
+    path("shop/", include("shops.menu_urls", namespace="menu")),
 
 
 ]
