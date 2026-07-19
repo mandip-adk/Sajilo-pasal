@@ -1,0 +1,60 @@
+{% extends "base/base.html" %}
+{% block title %}QR Code – {{ shop.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-12 col-sm-10 col-md-6 col-lg-5">
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4 text-center">
+
+        <h4 class="fw-bold mb-1">
+          <i class="bi bi-qr-code me-2"></i>{{ shop.name }}
+        </h4>
+        <p class="text-muted small mb-3">
+          Customers scan this to view your menu
+        </p>
+
+        <!-- QR code image (PNG, displayed inline) -->
+        <div class="mb-3 d-flex justify-content-center">
+          <img src="{% url 'qr_manager:png' shop.slug %}"
+               alt="QR code for {{ shop.name }}"
+               style="width: 220px; height: 220px; image-rendering: pixelated;"
+               class="border rounded p-2">
+        </div>
+
+        <!-- Short URL the QR code points to -->
+        <p class="text-muted small mb-3">
+          Encodes: <code>{{ short_url }}</code>
+        </p>
+
+        <!-- Download buttons -->
+        <div class="d-flex justify-content-center gap-2 flex-wrap">
+          <a href="{% url 'qr_manager:download_png' shop.slug %}"
+             class="btn btn-sajilo">
+            <i class="bi bi-download me-1"></i>Download PNG
+          </a>
+          <a href="{% url 'qr_manager:svg' shop.slug %}"
+             class="btn btn-outline-secondary">
+            <i class="bi bi-filetype-svg me-1"></i>Download SVG
+            <span class="badge bg-secondary ms-1" style="font-size: 0.65rem;">Print quality</span>
+          </a>
+        </div>
+
+        <p class="text-muted small mt-3 mb-0">
+          SVG scales to any size without blurring — use it for posters and printed menus.
+        </p>
+
+        <hr class="my-3">
+        <a href="{% url 'shops:detail' shop.slug %}"
+           class="btn btn-link text-decoration-none">
+          <i class="bi bi-arrow-left me-1"></i>Back to shop
+        </a>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
