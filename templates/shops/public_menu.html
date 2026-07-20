@@ -6,24 +6,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ shop.name }} – Menu</title>
 
-  <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <!-- Bootstrap Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet" />
 
   <style>
-    /* ── Public menu styles ── */
     :root {
       --sajilo-primary: #2d6a4f;
       --sajilo-accent:  #f77f00;
     }
-
     body {
       background: #f8f9fa;
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      /* Extra bottom padding so content isn't hidden behind sticky bar */
+      padding-bottom: 80px;
     }
 
-    /* Shop header */
+    /* ── Shop header ── */
     .shop-header {
       background: var(--sajilo-primary);
       color: #fff;
@@ -38,68 +36,7 @@
       border: 2px solid rgba(255,255,255,0.3);
     }
 
-    /* Category section */
-    .category-section { margin-bottom: 2rem; }
-    .category-title {
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--sajilo-primary);
-      border-bottom: 2px solid var(--sajilo-primary);
-      padding-bottom: 0.4rem;
-      margin-bottom: 1rem;
-    }
-
-    /* Product card */
-    .product-card {
-      background: #fff;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 1px 6px rgba(0,0,0,0.07);
-      margin-bottom: 0.75rem;
-      display: flex;
-      align-items: stretch;
-    }
-    .product-card.unavailable { opacity: 0.55; }
-
-    .product-img {
-      width: 90px;
-      min-height: 90px;
-      object-fit: cover;
-      flex-shrink: 0;
-    }
-    .product-img-placeholder {
-      width: 90px;
-      min-height: 90px;
-      background: #e9ecef;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.5rem;
-      color: #adb5bd;
-      flex-shrink: 0;
-    }
-
-    .product-body {
-      padding: 0.75rem;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    .product-name  { font-weight: 600; font-size: 0.95rem; margin: 0; }
-    .product-desc  { font-size: 0.78rem; color: #6c757d; margin: 0.2rem 0 0.4rem; }
-    .product-price { font-size: 1rem; font-weight: 700; color: var(--sajilo-primary); margin: 0; }
-    .badge-unavailable {
-      font-size: 0.65rem;
-      background: #6c757d;
-      color: #fff;
-      border-radius: 4px;
-      padding: 1px 6px;
-      display: inline-block;
-      margin-top: 0.2rem;
-    }
-
-    /* Sticky category nav (optional, good for long menus) */
+    /* ── Category nav ── */
     .category-nav {
       background: #fff;
       border-bottom: 1px solid #dee2e6;
@@ -121,12 +58,121 @@
       border: 1px solid var(--sajilo-primary);
       text-decoration: none;
     }
-    .category-nav a:hover {
-      background: var(--sajilo-primary);
-      color: #fff;
+    .category-nav a:hover { background: var(--sajilo-primary); color: #fff; }
+
+    /* ── Category section ── */
+    .category-section { margin-bottom: 2rem; }
+    .category-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--sajilo-primary);
+      border-bottom: 2px solid var(--sajilo-primary);
+      padding-bottom: 0.4rem;
+      margin-bottom: 1rem;
     }
 
-    /* Footer */
+    /* ── Product card ── */
+    .product-card {
+      background: #fff;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: stretch;
+    }
+    .product-card.unavailable { opacity: 0.55; }
+
+    .product-img {
+      width: 90px; min-height: 90px;
+      object-fit: cover; flex-shrink: 0;
+    }
+    .product-img-placeholder {
+      width: 90px; min-height: 90px;
+      background: #e9ecef;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; color: #adb5bd; flex-shrink: 0;
+    }
+    .product-body {
+      padding: 0.75rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .product-name  { font-weight: 600; font-size: 0.95rem; margin: 0; }
+    .product-desc  { font-size: 0.78rem; color: #6c757d; margin: 0.2rem 0 0.4rem; }
+    .product-price { font-size: 1rem; font-weight: 700; color: var(--sajilo-primary); margin: 0; }
+    .badge-unavailable {
+      font-size: 0.65rem; background: #6c757d; color: #fff;
+      border-radius: 4px; padding: 1px 6px;
+      display: inline-block; margin-top: 0.2rem;
+    }
+    .btn-sajilo {
+      background: var(--sajilo-primary); color: #fff;
+      border: none; border-radius: 6px;
+      padding: 0.3rem 0.75rem; font-size: 0.82rem;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn-sajilo:hover  { background: #1e4d38; color: #fff; }
+    .btn-sajilo.btn-success { background: #198754; }
+
+    /* ── Sticky bottom cart bar ── */
+    #cart-bottom-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--sajilo-primary);
+      color: #fff;
+      padding: 0.85rem 1.25rem;
+      display: none;           /* shown by cart.js when cart has items */
+      align-items: center;
+      justify-content: space-between;
+      z-index: 200;
+      cursor: pointer;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.15);
+    }
+    #cart-bottom-bar:hover { background: #1e4d38; }
+    #cart-bottom-bar .cart-label { font-weight: 600; font-size: 0.95rem; }
+    #cart-bottom-bar .cart-price { font-weight: 700; font-size: 1rem; }
+
+    /* ── Cart drawer (slides up from bottom) ── */
+    #cart-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 300;
+    }
+    #cart-drawer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #fff;
+      border-radius: 16px 16px 0 0;
+      padding: 1.25rem;
+      max-height: 75vh;
+      overflow-y: auto;
+      z-index: 400;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+    }
+    #cart-drawer.open { transform: translateY(0); }
+
+    .cart-drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .cart-drawer-header h5 { font-weight: 700; margin: 0; }
+
+    .cart-drawer-footer {
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 2px solid #dee2e6;
+    }
+
+    /* ── Footer ── */
     .menu-footer {
       text-align: center;
       padding: 2rem 1rem;
@@ -137,7 +183,7 @@
 </head>
 <body>
 
-  <!-- Shop Header -->
+  <!-- Shop header -->
   <div class="shop-header">
     <div class="d-flex align-items-center gap-3">
       {% if shop.logo %}
@@ -147,21 +193,15 @@
         <h1>{{ shop.name }}</h1>
         <p>
           {{ shop.get_shop_type_display }}
-          {% if shop.get_shop_type_display_nepali %}
-            · {{ shop.get_shop_type_display_nepali }}
-          {% endif %}
-          {% if shop.phone %}
-            · <i class="bi bi-telephone"></i> {{ shop.phone }}
-          {% endif %}
+          {% if shop.get_shop_type_display_nepali %}· {{ shop.get_shop_type_display_nepali }}{% endif %}
+          {% if shop.phone %} · <i class="bi bi-telephone"></i> {{ shop.phone }}{% endif %}
         </p>
-        {% if shop.description %}
-          <p>{{ shop.description }}</p>
-        {% endif %}
+        {% if shop.description %}<p>{{ shop.description }}</p>{% endif %}
       </div>
     </div>
   </div>
 
-  <!-- Category quick-nav (sticky) -->
+  <!-- Category quick-nav -->
   {% if menu_sections|length > 2 %}
   <nav class="category-nav">
     {% for category, products in menu_sections %}
@@ -170,7 +210,7 @@
   </nav>
   {% endif %}
 
-  <!-- Menu sections -->
+  <!-- Menu -->
   <div class="container-fluid px-3 py-3" style="max-width: 680px; margin: 0 auto;">
 
     {% if menu_sections %}
@@ -183,9 +223,7 @@
 
               {% if product.image %}
                 <img src="{{ product.image.url }}"
-                     class="product-img"
-                     alt="{{ product.name }}"
-                     loading="lazy">
+                     class="product-img" alt="{{ product.name }}" loading="lazy">
               {% else %}
                 <div class="product-img-placeholder">
                   <i class="bi bi-image"></i>
@@ -193,21 +231,32 @@
               {% endif %}
 
               <div class="product-body">
-                <p class="product-name">{{ product.name }}</p>
-                {% if product.description %}
-                  <p class="product-desc">{{ product.description }}</p>
-                {% endif %}
-                <p class="product-price">Rs. {{ product.price }}</p>
+                <div>
+                  <p class="product-name">{{ product.name }}</p>
+                  {% if product.description %}
+                    <p class="product-desc">{{ product.description }}</p>
+                  {% endif %}
+                </div>
+                <div class="d-flex align-items-center justify-content-between mt-1">
+                  <p class="product-price mb-0">Rs. {{ product.price }}</p>
 
-                {% if not product.is_orderable %}
-                  <span class="badge-unavailable">
-                    {% if not product.is_available %}
-                      Unavailable
-                    {% else %}
-                      Out of stock
-                    {% endif %}
-                  </span>
-                {% endif %}
+                  {% if product.is_orderable %}
+                    <button class="btn-sajilo"
+                            data-product-id="{{ product.id }}"
+                            onclick="SajiloCart.add(
+                              '{{ product.id }}',
+                              '{{ product.name|escapejs }}',
+                              '{{ product.price }}'
+                            )">
+                      Add
+                    </button>
+                  {% else %}
+                    <span class="badge-unavailable">
+                      {% if not product.is_available %}Unavailable{% else %}Out of stock{% endif %}
+                    </span>
+                  {% endif %}
+
+                </div>
               </div>
 
             </div>
@@ -229,7 +278,66 @@
     Powered by <strong>Sajilo Pasal</strong> · सजिलो पसल
   </div>
 
+  <!-- ── Cart overlay ── -->
+  <div id="cart-overlay" onclick="SajiloCart.closeDrawer()"></div>
+
+  <!-- ── Cart drawer ── -->
+  <div id="cart-drawer">
+    <div class="cart-drawer-header">
+      <h5><i class="bi bi-cart3 me-2"></i>Your Order</h5>
+      <button class="btn btn-sm btn-outline-secondary"
+              onclick="SajiloCart.closeDrawer()">Close</button>
+    </div>
+
+    <div id="cart-items-list">
+      <!-- populated by cart.js -->
+    </div>
+
+    <div class="cart-drawer-footer">
+      <div class="d-flex justify-content-between fw-bold mb-3">
+        <span>Total</span>
+        <span id="cart-drawer-total">Rs. 0.00</span>
+      </div>
+      <a href="{% url 'orders:place' shop.slug %}"
+         class="btn w-100 fw-semibold text-white"
+         style="background: var(--sajilo-primary);"
+         id="cart-checkout-btn">
+        <i class="bi bi-check2-circle me-2"></i>Place Order
+      </a>
+      <button class="btn btn-link text-danger w-100 mt-2"
+              onclick="SajiloCart.clear()">
+        Clear cart
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Sticky bottom cart bar ── -->
+  <div id="cart-bottom-bar" onclick="SajiloCart.openDrawer()">
+    <div>
+      <div class="cart-label">
+        <i class="bi bi-cart3 me-2"></i>
+        <span id="cart-item-count">0 items</span>
+      </div>
+      <div style="font-size: 0.78rem; opacity: 0.85;">Tap to review your order</div>
+    </div>
+    <div class="cart-price" id="cart-total-price">Rs. 0.00</div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  {% load static %}
+  <script src="{% static 'js/cart.js' %}"></script>
+  <script>
+    // Initialise cart scoped to this specific shop.
+    // The shop_id is passed from Django so the localStorage key is
+    // unique per shop — a customer visiting two different shops
+    // won't mix their carts.
+    document.addEventListener("DOMContentLoaded", function () {
+      SajiloCart.init({{ shop.id }});
+    });
+  </script>
+
 </body>
 </html>
+
+
 

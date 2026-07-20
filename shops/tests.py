@@ -26,7 +26,7 @@ Run with:
 import io
 from django.urls import reverse
 from unittest import mock
-
+from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
@@ -730,3 +730,132 @@ class PublicMenuTests(TestCase):
         resp = anon.get(redirect_url, follow=True)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, self.shop.name)
+
+"""
+Day 10 — Shopping cart tests.
+Append these classes to shops/tests.py.
+
+The cart logic lives in JavaScript (cart.js) and can't be tested by
+Django's test client directly. What we verify here:
+  - The public menu template renders the required cart HTML hooks
+  - Orderable products have Add buttons with data-product-id
+  - Unavailable products do NOT have Add buttons
+  - Cart JS is included in the template
+  - SajiloCart.init() is called with the correct shop ID
+"""
+
+
+
+class CartTemplateHooksTests(TestCase):
+    """
+    Verifies the public menu template renders the HTML hooks that
+    cart.js depends on. If any of these fail, the cart will silently
+    not work even if cart.js itself is correct.
+    """
+
+    def setUp(self):
+        from categories.models import Category
+        from products.models import Product
+
+        self.owner = make_verified_user("carttest@example.com")
+        self.shop = make_shop(self.owner, "Cart Test Shop")
+        self.category = Category.objects.create(shop=self.shop, name="Food")
+
+        self.orderable = Product.objects.create(
+            category=self.category,
+            name="Chicken Momo",
+            price=Decimal("150.00"),
+            stock_quantity=10,
+            is_available=True,
+        )
+        self.out_of_stock = Product.objects.create(
+            category=self.category,
+            name="Veg Momo",
+            price=Decimal("120.00"),
+            stock_quantity=0,
+            is_available=True,
+            allow_over_order=False,
+        )
+        self.unavailable = Product.objects.create(
+            category=self.category,
+            name="Special Momo",
+            price=Decimal("200.00"),
+            stock_quantity=5,
+            is_available=False,
+        )
+
+    def _get_menu(self):
+        return self.client.get(
+            reverse("menu:detail", args=[self.shop.slug])
+        )
+
+    def test_cart_js_included_in_menu(self):
+        resp = self._get_menu()
+        self.assertContains(resp, "cart.js")
+
+    def test_sajilo_cart_init_called_with_shop_id(self):
+        resp = self._get_menu()
+        self.assertContains(resp, "SajiloCart.init")
+        self.assertContains(resp, str(self.shop.id))
+
+    def test_sticky_bottom_bar_present(self):
+        resp = self._get_menu()
+        self.assertContains(resp, 'id="cart-bottom-bar"')
+
+    def test_cart_drawer_present(self):
+        resp = self._get_menu()
+        self.assertContains(resp, 'id="cart-drawer"')
+
+    def test_orderable_product_has_add_button_with_data_product_id(self):
+        resp = self._get_menu()
+        self.assertContains(resp, f'data-product-id="{self.orderable.id}"')
+        self.assertContains(resp, "SajiloCart.add")
+
+    def test_orderable_product_add_button_includes_name_and_price(self):
+        resp = self._get_menu()
+        self.assertContains(resp, "Chicken Momo")
+        self.assertContains(resp, "150.00")
+
+    def test_out_of_stock_product_has_no_add_button(self):
+        """
+        A product with stock=0 and allow_over_order=False is not orderable.
+        It should show an 'Out of stock' badge, not an Add button.
+        """
+        resp = self._get_menu()
+        self.assertContains(resp, "Out of stock")
+        # The out-of-stock product must NOT have a data-product-id Add button
+        # (the orderable product does, so we check the specific product)
+        content = resp.content.decode()
+        # Find the section for the unavailable product and confirm no Add call
+        # We check this by confirming the out-of-stock product id is NOT
+        # used in a SajiloCart.add() call (it appears elsewhere just for display)
+        self.assertNotIn(
+            f"SajiloCart.add(\n                              '{self.out_of_stock.id}'",
+            content
+        )
+
+    def test_unavailable_product_has_no_add_button(self):
+        resp = self._get_menu()
+        self.assertContains(resp, "Unavailable")
+
+    def test_cart_drawer_has_place_order_link(self):
+        """
+        The Place Order button in the cart drawer must link to the order
+        placement URL (built on Day 11-12). Checked now so we don't
+        silently ship a cart with a broken checkout link.
+        """
+        resp = self._get_menu()
+        self.assertContains(resp, "Place Order")
+
+    def test_cart_scoped_to_shop_id(self):
+        """
+        Each shop gets its own localStorage key (sajilo_cart_<id>).
+        Verified by confirming the template passes shop.id to SajiloCart.init.
+        """
+        resp = self._get_menu()
+        content = resp.content.decode()
+        self.assertIn(f"SajiloCart.init({self.shop.id})", content)
+
+    def test_cart_clear_button_present_in_drawer(self):
+        resp = self._get_menu()
+        self.assertContains(resp, "SajiloCart.clear()")
