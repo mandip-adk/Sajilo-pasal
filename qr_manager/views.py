@@ -74,7 +74,7 @@ def short_redirect_view(request, shop_id):
       not serve a menu to customers who scan an old QR code.
     """
     shop = get_object_or_404(Shop, pk=shop_id, is_active=True)
-    return redirect(shop.menu_url_path)
+    return redirect(shop.get_menu_url())
 
 
 # ─────────────────────────────────────────────

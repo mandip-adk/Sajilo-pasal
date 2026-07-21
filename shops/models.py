@@ -191,12 +191,6 @@ class Shop(models.Model):
             f"Could not generate a unique slug for '{self.name}' after {max_retries} attempts."
         )
 
-    # ── Convenience ──────────────────────────────────────
-
-    @property
-    def get_menu_url(self):
-
-        return reverse("menu:detail", kwargs={"slug": self.slug})
 
     def get_shop_type_display_nepali(self):
         """
@@ -212,4 +206,5 @@ class Shop(models.Model):
         }
         return nepali_labels.get(self.shop_type, "")
     
-    
+    def get_menu_url(self):
+        return reverse("menu:detail", kwargs={"slug": self.slug})

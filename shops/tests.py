@@ -47,6 +47,9 @@ def make_verified_user(email):
     return user
 
 
+def make_shop(owner, name="Test Shop"):
+    return Shop.objects.create(owner=owner, name=name)
+
 def make_test_image_bytes(format="JPEG", size=(10, 10)):
     """Generates a tiny, genuinely valid in-memory image for upload tests."""
     from PIL import Image
@@ -598,7 +601,7 @@ Covers checklist section 5:
   - Verify menu only shows active shops
 """
 
-from decimal import Decimal
+
 
 
 # ─────────────────────────────────────────────

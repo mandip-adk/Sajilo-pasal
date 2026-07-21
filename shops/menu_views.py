@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404
 from shops.models import Shop
 
 
-def public_menu_view(request, shop_slug):
+def public_menu_view(request, slug):
     """
     Public, no-login customer-facing menu page.
     Reached by scanning the QR code → /s/<id>/ → /shop/<slug>/
@@ -25,7 +25,7 @@ def public_menu_view(request, shop_slug):
     evaluated. This is fine for menus of typical size (10-40 products)
     but would need rethinking for very large menus.
     """
-    shop = get_object_or_404(Shop, slug=shop_slug, is_active=True)
+    shop = get_object_or_404(Shop, slug=slug, is_active=True)
 
     # Prefetch categories with their products in two queries total,
     # ordered by category creation order and product creation order.
