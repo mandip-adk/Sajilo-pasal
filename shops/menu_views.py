@@ -1,8 +1,10 @@
 from django.shortcuts import render, get_object_or_404
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from shops.models import Shop
 
 
+@ensure_csrf_cookie
 def public_menu_view(request, slug):
     """
     Public, no-login customer-facing menu page.
@@ -12,6 +14,14 @@ def public_menu_view(request, slug):
     all visitors. Any active shop's menu is publicly readable.
     Inactive shops 404 cleanly: a deactivated shop should not serve
     a menu to customers who scan an old QR sticker.
+
+    @ensure_csrf_cookie (Day 12): this page has no <form> and never
+    did, so nothing was forcing Django to set the CSRF cookie for
+    anonymous visitors. The cart drawer's "Place Order" button now
+    fires a fetch() POST to orders:place, which — like any POST — is
+    CSRF-protected. Without this decorator, a customer's first ever
+    request here wouldn't carry a csrftoken cookie, and getCsrfToken()
+    in cart.js would read undefined, failing every order placement.
 
     Query strategy: fetch the shop, then prefetch all its categories
     with their products in two queries total (select_related for the

@@ -220,6 +220,193 @@ function _escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+// ── Order submission (Day 12) ───────────────────────────────────────
+//
+// Fetch-based, no page reload — fits the mobile-first / slow-connection
+// goal. Talks to orders:place.
+//
+// cart.js scopes the local cart by the shop's numeric id (matching the
+// QR short-link, sajilo_cart_<shop_id>), but orders:place is a
+// slug-based URL — so rather than reconstruct it from _shopId, the
+// template must set it explicitly before this script runs:
+//   <script>window.SAJILO_ORDER_PLACE_URL = "{% url 'orders:place' shop.slug %}";</script>
+//
+// Expected (optional) DOM elements — read if present, sensible
+// defaults used if not, so this doesn't break before the drawer
+// template grows these fields:
+//   #order-table-number         <input>  free text, e.g. "Table 3"
+//   #order-customer-note        <textarea>
+//   input[name="payment_method"]:checked   radio group, values "cash" | "fonepay"
+//   #place-order-btn            the submit button (disabled while in flight)
+//   #order-error                container for inline error messages
+//   #cart-drawer-body           swapped for confirmation content on success
+//
+// Requires getCsrfToken() from main.js, and that the page actually has
+// a CSRF cookie set — since public_menu_view serves anonymous
+// customers, it needs @ensure_csrf_cookie (or a hidden
+// {% csrf_token %} rendered somewhere) or the cookie never gets issued
+// and every submit will fail CSRF validation.
+
+let _submitting = false;
+
+function _orderTokenKey(shopId) {
+  return `sajilo_order_token_${shopId}`;
+}
+
+function _getOrCreateOrderToken() {
+  const key = _orderTokenKey(_shopId);
+  let token = localStorage.getItem(key);
+  if (!token) {
+    token = (crypto.randomUUID ? crypto.randomUUID() : _uuidFallback());
+    try {
+      localStorage.setItem(key, token);
+    } catch (e) {
+      // localStorage unavailable — order still works, it just loses
+      // duplicate-submit protection across page reloads.
+    }
+  }
+  return token;
+}
+
+function _clearOrderToken() {
+  try {
+    localStorage.removeItem(_orderTokenKey(_shopId));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function _uuidFallback() {
+  // crypto.randomUUID() requires a secure context (https / localhost).
+  // Good enough fallback for older/odd mobile browsers on plain http
+  // during local dev.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function _setSubmitting(state) {
+  _submitting = state;
+  const btn = document.getElementById("place-order-btn");
+  if (!btn) return;
+  btn.disabled = state;
+  btn.textContent = state ? "Placing order…" : "Place Order";
+}
+
+function _showOrderError(message, unavailableItems) {
+  const box = document.getElementById("order-error");
+  if (box) {
+    box.textContent = message;
+    box.style.display = "block";
+  } else {
+    // No dedicated error slot in the template yet — fall back so the
+    // customer still finds out.
+    alert(message);
+  }
+
+  // Drop any items the server flagged as no longer orderable, so the
+  // customer isn't stuck retrying with the same broken cart.
+  if (Array.isArray(unavailableItems)) {
+    unavailableItems.forEach((item) => {
+      if (item && item.id != null) delete _cart[String(item.id)];
+    });
+    if (unavailableItems.length) {
+      _save();
+      _render();
+    }
+  }
+}
+
+function _showOrderConfirmation(order) {
+  const body = document.getElementById("cart-drawer-body");
+  if (!body) {
+    alert(`Order ${order.order_number_display} placed! Show this to the shop: ${order.token}`);
+    return;
+  }
+
+  const itemsHtml = order.items.map(i => `
+    <div class="d-flex justify-content-between py-1">
+      <span>${_escapeHtml(i.name)} × ${i.quantity}</span>
+      <span>Rs. ${i.line_total}</span>
+    </div>
+  `).join("");
+
+  body.innerHTML = `
+    <div class="text-center py-3">
+      <div class="fs-4 fw-bold mb-1">✓ Order ${order.order_number_display}</div>
+      <div class="text-muted mb-3" style="font-size:0.85rem;">Status: ${order.status}</div>
+      <div class="text-start border-top border-bottom py-2 mb-2">${itemsHtml}</div>
+      <div class="d-flex justify-content-between fw-bold mb-3">
+        <span>Total</span><span>Rs. ${order.subtotal}</span>
+      </div>
+      <button class="btn btn-sajilo" onclick="SajiloCart.closeDrawer()">Done</button>
+    </div>
+  `;
+}
+
+function submitOrder() {
+  if (_submitting) return;
+  if (getTotalItems() === 0) {
+    _showOrderError("Your cart is empty.");
+    return;
+  }
+
+  const items = Object.values(_cart).map(item => ({
+    id: item.id,
+    quantity: item.quantity,
+  }));
+
+  const tableInput = document.getElementById("order-table-number");
+  const noteInput  = document.getElementById("order-customer-note");
+  const paymentInput = document.querySelector('input[name="payment_method"]:checked');
+
+  const payload = {
+    items,
+    table_number: tableInput ? tableInput.value : "",
+    customer_note: noteInput ? noteInput.value : "",
+    payment_method: paymentInput ? paymentInput.value : "cash",
+    order_token: _getOrCreateOrderToken(),
+  };
+
+  const errorBox = document.getElementById("order-error");
+  if (errorBox) errorBox.style.display = "none";
+
+  const placeOrderUrl = window.SAJILO_ORDER_PLACE_URL;
+  if (!placeOrderUrl) {
+    _showOrderError("Order placement isn't configured on this page.");
+    return;
+  }
+
+  _setSubmitting(true);
+
+  fetch(placeOrderUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": getCsrfToken(),
+    },
+    body: JSON.stringify(payload),
+  })
+    .then(async (res) => {
+      const data = await res.json();
+      if (res.ok && data.success) {
+        clearCart();
+        _clearOrderToken();
+        _showOrderConfirmation(data.order);
+      } else {
+        _showOrderError(data.message || "Could not place your order.", data.unavailable_items);
+      }
+    })
+    .catch(() => {
+      _showOrderError("Network error — please check your connection and try again.");
+    })
+    .finally(() => {
+      _setSubmitting(false);
+    });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────
 
 function initCart(shopId) {
@@ -244,5 +431,5 @@ window.SajiloCart = {
   totalPrice:     getTotalPrice,
   openDrawer:     openCartDrawer,
   closeDrawer:    closeCartDrawer,
+  submitOrder:    submitOrder,
 };
-

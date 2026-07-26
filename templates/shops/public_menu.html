@@ -289,25 +289,68 @@
               onclick="SajiloCart.closeDrawer()">Close</button>
     </div>
 
-    <div id="cart-items-list">
-      <!-- populated by cart.js -->
-    </div>
+    <!-- Day 12: everything below gets swapped for an order confirmation
+         by cart.js's _showOrderConfirmation() once an order is placed. -->
+    <div id="cart-drawer-body">
 
-    <div class="cart-drawer-footer">
-      <div class="d-flex justify-content-between fw-bold mb-3">
-        <span>Total</span>
-        <span id="cart-drawer-total">Rs. 0.00</span>
+      <div id="order-error"
+           class="alert alert-danger py-2 px-3 mb-3"
+           style="display:none; font-size: 0.85rem;"></div>
+
+      <div id="cart-items-list">
+        <!-- populated by cart.js -->
       </div>
-      <a href="{% url 'orders:place' shop.slug %}"
-         class="btn w-100 fw-semibold text-white"
-         style="background: var(--sajilo-primary);"
-         id="cart-checkout-btn">
-        <i class="bi bi-check2-circle me-2"></i>Place Order
-      </a>
-      <button class="btn btn-link text-danger w-100 mt-2"
-              onclick="SajiloCart.clear()">
-        Clear cart
-      </button>
+
+      <div class="mb-3">
+        <label for="order-table-number" class="form-label" style="font-size:0.82rem; font-weight:600;">
+          Table / order for
+        </label>
+        <input type="text" id="order-table-number" class="form-control form-control-sm"
+               placeholder="e.g. Table 3, Counter, Takeaway" maxlength="50">
+      </div>
+
+      <div class="mb-3">
+        <label for="order-customer-note" class="form-label" style="font-size:0.82rem; font-weight:600;">
+          Note for the shop (optional)
+        </label>
+        <textarea id="order-customer-note" class="form-control form-control-sm" rows="2"
+                  maxlength="500" placeholder="e.g. less spicy"></textarea>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label d-block" style="font-size:0.82rem; font-weight:600;">Payment</label>
+        <div class="d-flex gap-3">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="payment_method"
+                   id="pay-cash" value="cash" checked>
+            <label class="form-check-label" for="pay-cash" style="font-size:0.85rem;">Cash</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="payment_method"
+                   id="pay-fonepay" value="fonepay">
+            <label class="form-check-label" for="pay-fonepay" style="font-size:0.85rem;">Fonepay QR</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="cart-drawer-footer">
+        <div class="d-flex justify-content-between fw-bold mb-3">
+          <span>Total</span>
+          <span id="cart-drawer-total">Rs. 0.00</span>
+        </div>
+        <button type="button"
+                class="btn w-100 fw-semibold text-white"
+                style="background: var(--sajilo-primary);"
+                id="place-order-btn"
+                onclick="SajiloCart.submitOrder()">
+          <i class="bi bi-check2-circle me-2"></i>Place Order
+        </button>
+        <button class="btn btn-link text-danger w-100 mt-2"
+                onclick="SajiloCart.clear()">
+          Clear cart
+        </button>
+      </div>
+
     </div>
   </div>
 
@@ -325,6 +368,13 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   {% load static %}
+  <script>
+    // Day 12: orders:place is slug-based while the cart itself is
+    // scoped by numeric shop id (see cart.js), so the URL is handed
+    // over explicitly rather than reconstructed in JS.
+    window.SAJILO_ORDER_PLACE_URL = "{% url 'orders:place' shop.slug %}";
+  </script>
+  <script src="{% static 'js/main.js' %}"></script>
   <script src="{% static 'js/cart.js' %}"></script>
   <script>
     // Initialise cart scoped to this specific shop.
@@ -338,6 +388,4 @@
 
 </body>
 </html>
-
-
 
