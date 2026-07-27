@@ -1,7 +1,7 @@
 """
-Automated QA tests for Sajilo Pasal — Orders app (Day 11).
+Automated QA tests for Sajilo Pasal — Orders app.
 
-Covers:
+Day 11 covers:
   - Order and OrderItem model creation
   - Sequential per-shop order numbering (race-safe)
   - Duplicate order token prevention
@@ -9,8 +9,17 @@ Covers:
   - TextChoices for status, payment_status, payment_method
   - OrderItem survives product deletion (SET_NULL)
 
-Day 12 will add:
-  - Order placement view (POST from cart)
+Day 12 adds:
+  - place_order_view: POST from the cart drawer (fetch-based)
+  - Server-side re-pricing / availability re-check (client cart is
+    untrusted input — only product id + quantity are taken from it)
+  - Idempotency via order_token (double-submit protection over HTTP,
+    not just at the model layer)
+  - Cross-shop product isolation
+  - Request validation (empty cart, bad JSON, bad quantity, bad
+    payment method, wrong HTTP method, inactive shop)
+
+Day 14 will add:
   - Stock decrement on status change to Preparing
   - Owner dashboard order management
 
@@ -18,6 +27,7 @@ Run with:
     python manage.py test orders -v 2
 """
 
+import json
 import uuid
 from decimal import Decimal
 
@@ -150,7 +160,7 @@ class OrderNumberSequenceTests(TestCase):
 
 
 # ─────────────────────────────────────────────
-# Duplicate order token prevention
+# Duplicate order token prevention (model layer)
 # ─────────────────────────────────────────────
 
 class DuplicateOrderTokenTests(TestCase):
@@ -159,6 +169,10 @@ class DuplicateOrderTokenTests(TestCase):
     If a customer double-taps "Place Order" on a slow connection, the
     second request carries the same token and must be rejected at the
     DB level (unique=True on order_token).
+
+    See PlaceOrderIdempotencyTests below for the HTTP-layer behaviour
+    (place_order_view catches this and returns the existing order
+    instead of letting the IntegrityError surface).
     """
 
     def setUp(self):
@@ -438,14 +452,13 @@ class OrderNumberRaceConditionTests(TransactionTestCase):
 
 
 # ─────────────────────────────────────────────
-# URL stub — orders:place resolves
+# orders:place URL — resolution + method enforcement
 # ─────────────────────────────────────────────
 
-class OrdersUrlStubTests(TestCase):
+class OrdersUrlTests(TestCase):
     """
-    Confirms orders:place URL resolves correctly so the public_menu.html
-    template can render without NoReverseMatch. Day 12 replaces the stub
-    with the real order placement view.
+    Day 12: the stub is gone, orders:place now points at the real
+    place_order_view, which is POST-only (@require_POST).
     """
 
     def setUp(self):
@@ -456,10 +469,414 @@ class OrdersUrlStubTests(TestCase):
         url = reverse("orders:place", args=[self.shop.slug])
         self.assertIn(self.shop.slug, url)
 
-    def test_orders_place_stub_returns_200(self):
+    def test_get_request_not_allowed(self):
         url = reverse("orders:place", args=[self.shop.slug])
         resp = self.client.get(url)
-        # Stub accepts any method and returns 200
-        self.assertIn(resp.status_code, [200, 405])
+        self.assertEqual(resp.status_code, 405)
+
+
+# ─────────────────────────────────────────────
+# place_order_view — happy path
+# ─────────────────────────────────────────────
+
+class PlaceOrderViewTests(TestCase):
+
+    def setUp(self):
+        owner = make_verified_user("placeorder@example.com")
+        self.shop = make_shop(owner)
+        self.cat = make_category(self.shop)
+        self.product_a = make_product(self.cat, "Chicken Momo", "150.00", stock=10)
+        self.product_b = make_product(self.cat, "Coke", "60.00", stock=10)
+        self.url = reverse("orders:place", args=[self.shop.slug])
+
+    def _post(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def test_valid_order_returns_201(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 2}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_response_success_and_order_number(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertTrue(data["success"])
+        self.assertFalse(data["duplicate"])
+        self.assertEqual(data["order"]["order_number"], 1)
+        self.assertEqual(data["order"]["order_number_display"], "#001")
+
+    def test_subtotal_computed_from_server_price(self):
+        resp = self._post({
+            "items": [
+                {"id": self.product_a.id, "quantity": 2},  # 150 * 2 = 300
+                {"id": self.product_b.id, "quantity": 3},  # 60 * 3 = 180
+            ],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(data["order"]["subtotal"], "480.00")
+
+    def test_order_and_items_persisted(self):
+        self._post({
+            "items": [{"id": self.product_a.id, "quantity": 2}],
+            "order_token": str(uuid.uuid4()),
+        })
+        order = Order.objects.get(shop=self.shop)
+        self.assertEqual(order.items.count(), 1)
+        item = order.items.first()
+        self.assertEqual(item.product_name, "Chicken Momo")
+        self.assertEqual(item.unit_price, Decimal("150.00"))
+        self.assertEqual(item.quantity, 2)
+        self.assertEqual(item.line_total, Decimal("300.00"))
+
+    def test_client_supplied_price_is_ignored(self):
+        """
+        Security: even if a tampered client sends a fake low price, the
+        server must charge the real DB price, not the client's number.
+        """
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1, "price": "1.00"}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(data["order"]["subtotal"], "150.00")
+
+    def test_table_number_and_note_saved(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1}],
+            "table_number": "Table 7",
+            "customer_note": "No onions",
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(data["order"]["table_number"], "Table 7")
+        self.assertEqual(data["order"]["customer_note"], "No onions")
+
+    def test_payment_method_saved(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1}],
+            "payment_method": "fonepay",
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(data["order"]["payment_method"], "fonepay")
+
+    def test_defaults_to_cash_when_payment_method_omitted(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(data["order"]["payment_method"], "cash")
+
+    def test_response_includes_order_token(self):
+        resp = self._post({
+            "items": [{"id": self.product_a.id, "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        order = Order.objects.get(shop=self.shop)
+        self.assertEqual(data["order"]["token"], str(order.order_token))
+
+    def test_stock_not_decremented_on_placement(self):
+        """Day 12 placement must not touch stock — that's Day 14."""
+        self._post({
+            "items": [{"id": self.product_a.id, "quantity": 3}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.product_a.refresh_from_db()
+        self.assertEqual(self.product_a.stock_quantity, 10)
+
+
+# ─────────────────────────────────────────────
+# place_order_view — availability / stock enforcement
+# ─────────────────────────────────────────────
+
+class PlaceOrderAvailabilityTests(TestCase):
+
+    def setUp(self):
+        owner = make_verified_user("placeavail@example.com")
+        self.shop = make_shop(owner)
+        self.cat = make_category(self.shop)
+        self.url = reverse("orders:place", args=[self.shop.slug])
+
+    def _post(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def test_unavailable_product_rejected(self):
+        product = make_product(self.cat, "Hidden Item", "50.00", stock=5)
+        product.is_available = False
+        product.save()
+
+        resp = self._post({
+            "items": [{"id": product.id, "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(data["error"], "items_unavailable")
+        self.assertEqual(data["unavailable_items"][0]["reason"], "unavailable")
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_out_of_stock_product_rejected(self):
+        product = make_product(self.cat, "Sold Out Item", "50.00", stock=0)
+
+        resp = self._post({
+            "items": [{"id": product.id, "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(data["unavailable_items"][0]["reason"], "out_of_stock")
+
+    def test_allow_over_order_permits_ordering_past_zero_stock(self):
+        product = make_product(self.cat, "Made To Order", "80.00", stock=0)
+        product.allow_over_order = True
+        product.save()
+
+        resp = self._post({
+            "items": [{"id": product.id, "quantity": 5}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_quantity_exceeding_stock_rejected_when_no_over_order(self):
+        product = make_product(self.cat, "Limited Item", "40.00", stock=3)
+
+        resp = self._post({
+            "items": [{"id": product.id, "quantity": 5}],
+            "order_token": str(uuid.uuid4()),
+        })
+        data = resp.json()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(data["unavailable_items"][0]["reason"], "insufficient_stock")
+        self.assertEqual(data["unavailable_items"][0]["available"], 3)
+
+    def test_quantity_within_stock_accepted(self):
+        product = make_product(self.cat, "Limited Item", "40.00", stock=3)
+
+        resp = self._post({
+            "items": [{"id": product.id, "quantity": 3}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_mixed_cart_with_one_bad_item_rejects_whole_order(self):
+        """
+        Order.create_from_cart is atomic — a bad item anywhere in the
+        cart must prevent the entire order from being created, not
+        just skip that line.
+        """
+        good = make_product(self.cat, "Good Item", "50.00", stock=5)
+        bad = make_product(self.cat, "Bad Item", "50.00", stock=0)
+
+        resp = self._post({
+            "items": [
+                {"id": good.id, "quantity": 1},
+                {"id": bad.id, "quantity": 1},
+            ],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Order.objects.count(), 0)
+
+
+# ─────────────────────────────────────────────
+# place_order_view — cross-shop isolation
+# ─────────────────────────────────────────────
+
+class PlaceOrderCrossShopTests(TestCase):
+
+    def setUp(self):
+        owner1 = make_verified_user("crossshop1@example.com")
+        owner2 = make_verified_user("crossshop2@example.com")
+        self.shop1 = make_shop(owner1, "Shop One")
+        self.shop2 = make_shop(owner2, "Shop Two")
+        cat2 = make_category(self.shop2)
+        self.other_shop_product = make_product(cat2, "Not Yours", "99.00", stock=10)
+        self.url = reverse("orders:place", args=[self.shop1.slug])
+
+    def test_product_from_different_shop_treated_as_not_found(self):
+        resp = self.client.post(
+            self.url,
+            data=json.dumps({
+                "items": [{"id": self.other_shop_product.id, "quantity": 1}],
+                "order_token": str(uuid.uuid4()),
+            }),
+            content_type="application/json",
+        )
+        data = resp.json()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(data["unavailable_items"][0]["reason"], "not_found")
+        self.assertEqual(Order.objects.count(), 0)
+
+
+# ─────────────────────────────────────────────
+# place_order_view — idempotency (HTTP layer)
+# ─────────────────────────────────────────────
+
+class PlaceOrderIdempotencyTests(TestCase):
+
+    def setUp(self):
+        owner = make_verified_user("idempotency@example.com")
+        self.shop = make_shop(owner)
+        cat = make_category(self.shop)
+        self.product = make_product(cat, "Momo", "150.00", stock=10)
+        self.url = reverse("orders:place", args=[self.shop.slug])
+        self.token = str(uuid.uuid4())
+
+    def _post(self):
+        return self.client.post(
+            self.url,
+            data=json.dumps({
+                "items": [{"id": self.product.id, "quantity": 1}],
+                "order_token": self.token,
+            }),
+            content_type="application/json",
+        )
+
+    def test_first_submission_creates_order(self):
+        resp = self._post()
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_repeated_submission_returns_existing_order(self):
+        first = self._post().json()
+        second = self._post()
+
+        self.assertEqual(second.status_code, 200)
+        second_data = second.json()
+        self.assertTrue(second_data["duplicate"])
+        self.assertEqual(second_data["order"]["order_number"], first["order"]["order_number"])
+        self.assertEqual(Order.objects.count(), 1)  # no duplicate row created
+
+
+# ─────────────────────────────────────────────
+# place_order_view — request validation
+# ─────────────────────────────────────────────
+
+class PlaceOrderValidationTests(TestCase):
+
+    def setUp(self):
+        owner = make_verified_user("placevalid@example.com")
+        self.shop = make_shop(owner)
+        self.cat = make_category(self.shop)
+        self.product = make_product(self.cat, "Momo", "150.00", stock=10)
+        self.url = reverse("orders:place", args=[self.shop.slug])
+
+    def _post(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def test_empty_cart_rejected(self):
+        resp = self._post({"items": [], "order_token": str(uuid.uuid4())})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "cart_empty")
+
+    def test_missing_items_key_rejected(self):
+        resp = self._post({"order_token": str(uuid.uuid4())})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "cart_empty")
+
+    def test_malformed_json_rejected(self):
+        resp = self.client.post(
+            self.url, data="not valid json {{{", content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "bad_json")
+
+    def test_zero_quantity_rejected(self):
+        resp = self._post({
+            "items": [{"id": self.product.id, "quantity": 0}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "bad_quantity")
+
+    def test_negative_quantity_rejected(self):
+        resp = self._post({
+            "items": [{"id": self.product.id, "quantity": -1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "bad_quantity")
+
+    def test_quantity_over_cap_rejected(self):
+        resp = self._post({
+            "items": [{"id": self.product.id, "quantity": 1000}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "bad_quantity")
+
+    def test_non_numeric_id_rejected(self):
+        resp = self._post({
+            "items": [{"id": "not-an-id", "quantity": 1}],
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "bad_item")
+
+    def test_invalid_payment_method_rejected(self):
+        resp = self._post({
+            "items": [{"id": self.product.id, "quantity": 1}],
+            "payment_method": "bitcoin",
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["error"], "invalid_payment_method")
+
+    def test_table_number_truncated_to_max_length(self):
+        resp = self._post({
+            "items": [{"id": self.product.id, "quantity": 1}],
+            "table_number": "X" * 200,
+            "order_token": str(uuid.uuid4()),
+        })
+        self.assertEqual(resp.status_code, 201)
+        order = Order.objects.get(shop=self.shop)
+        self.assertEqual(len(order.table_number), 50)
+
+
+# ─────────────────────────────────────────────
+# place_order_view — shop status
+# ─────────────────────────────────────────────
+
+class PlaceOrderShopStatusTests(TestCase):
+
+    def setUp(self):
+        owner = make_verified_user("placeshopstatus@example.com")
+        self.shop = make_shop(owner)
+        self.shop.is_active = False
+        self.shop.save()
+        cat = make_category(self.shop)
+        self.product = make_product(cat, "Momo", "150.00", stock=10)
+
+    def test_inactive_shop_returns_404(self):
+        url = reverse("orders:place", args=[self.shop.slug])
+        resp = self.client.post(
+            url,
+            data=json.dumps({
+                "items": [{"id": self.product.id, "quantity": 1}],
+                "order_token": str(uuid.uuid4()),
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 404)
 
         

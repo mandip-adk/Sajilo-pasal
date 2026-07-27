@@ -1,0 +1,84 @@
+{% extends "base/base.html" %}
+{% block title %}{{ order.order_number_display }} – {{ shop.name }}{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width: 640px;">
+
+  <a href="{% url 'dashboard:shop_orders' shop.slug %}" class="text-decoration-none text-muted" style="font-size:0.82rem;">
+    <i class="bi bi-arrow-left"></i> Back to orders
+  </a>
+
+  <div class="card shadow-sm mt-2">
+    <div class="card-body">
+
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+          <h4 class="fw-bold mb-0">{{ order.order_number_display }}</h4>
+          <div class="text-muted" style="font-size:0.85rem;">
+            {{ order.created_at|date:"d M Y, g:i A" }}
+          </div>
+        </div>
+        <span class="badge
+          {% if order.status == 'pending' %}bg-warning text-dark
+          {% elif order.status == 'preparing' %}bg-info text-dark
+          {% elif order.status == 'ready' %}bg-success
+          {% else %}bg-secondary{% endif %}" style="font-size:0.8rem;">
+          {{ order.get_status_display }}
+        </span>
+      </div>
+
+      <div class="row mb-3" style="font-size:0.88rem;">
+        <div class="col-6">
+          <div class="text-muted">Table / order for</div>
+          <div class="fw-semibold">{{ order.table_number|default:"—" }}</div>
+        </div>
+        <div class="col-6">
+          <div class="text-muted">Payment</div>
+          <div class="fw-semibold">
+            {{ order.get_payment_method_display }}
+            · {{ order.get_payment_status_display }}
+          </div>
+        </div>
+      </div>
+
+      {% if order.customer_note %}
+        <div class="alert alert-light border mb-3" style="font-size:0.85rem;">
+          <i class="bi bi-chat-left-text me-1"></i>{{ order.customer_note }}
+        </div>
+      {% endif %}
+
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="text-center">Qty</th>
+            <th class="text-end">Price</th>
+            <th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in order.items.all %}
+            <tr>
+              <td>{{ item.product_name }}</td>
+              <td class="text-center">{{ item.quantity }}</td>
+              <td class="text-end">Rs. {{ item.unit_price }}</td>
+              <td class="text-end">Rs. {{ item.line_total }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="fw-bold">
+            <td colspan="3" class="text-end">Total</td>
+            <td class="text-end">Rs. {{ order.subtotal }}</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <!-- Status-change controls (mark Preparing / Ready / Cancelled)
+           arrive on Day 14. This view is intentionally read-only. -->
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+

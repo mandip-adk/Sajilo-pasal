@@ -1,15 +1,11 @@
 from django.urls import path
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+
+from . import views
 
 app_name = "dashboard"
 
-# Temporary stub — full dashboard built on Day 13
-@login_required
-def home(request):
-    return render(request, "dashboard/home_stub.html")
-
 urlpatterns = [
-    path("", home, name="home"),
+    path("", views.dashboard_home_view, name="home"),
+    path("<slug:shop_slug>/", views.shop_orders_view, name="shop_orders"),
+    path("<slug:shop_slug>/orders/<int:order_id>/", views.order_detail_view, name="order_detail"),
 ]
-

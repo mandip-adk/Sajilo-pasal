@@ -1,3 +1,116 @@
-from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
+from django.db.models import Count
+from django.shortcuts import get_object_or_404, render
 
-# Create your views here.
+from orders.models import Order, OrderStatus
+from shops.models import Shop
+
+ORDERS_PER_PAGE = 20
+
+
+@login_required
+def dashboard_home_view(request):
+    """
+    Landing page after login — a shop switcher.
+
+    Shop.owner is a plain FK (not OneToOne), so one account can run
+    more than one shop (e.g. a family running both a tea shop and a
+    kirana store). This lists every shop the logged-in user owns, with
+    a pending-order count per shop, linking into that shop's order
+    dashboard.
+    """
+    shops = (
+        Shop.objects
+        .filter(owner=request.user)
+        .order_by("name")
+    )
+
+    # Pending count per shop in one query, rather than one COUNT query
+    # per shop card if the template called shop.orders.filter(...)
+    # directly — matters once an owner has several shops.
+    pending_counts = dict(
+        Order.objects
+        .filter(shop__owner=request.user, status=OrderStatus.PENDING)
+        .values("shop_id")
+        .annotate(count=Count("id"))
+        .values_list("shop_id", "count")
+    )
+    for shop in shops:
+        shop.pending_count = pending_counts.get(shop.id, 0)
+
+    return render(request, "dashboard/home.html", {"shops": shops})
+
+
+@login_required
+def shop_orders_view(request, shop_slug):
+    """
+    Order list for a single shop.
+
+    Ownership check is a single joined queryset (shop__owner via the
+    get_object_or_404 below) — same defensive pattern used for
+    products/categories, so a request for another owner's shop 404s
+    instead of confirming the shop exists.
+
+    Filterable via ?status=pending|preparing|ready|cancelled. This
+    view is read-only — no status-change controls here, that's Day 14.
+    """
+    shop = get_object_or_404(Shop, slug=shop_slug, owner=request.user)
+
+    status_filter = request.GET.get("status", "")
+    orders_qs = (
+        Order.objects
+        .filter(shop=shop)
+        .annotate(item_count=Count("items"))  # avoids per-row .items.count() N+1
+        .order_by("-created_at")
+    )
+    if status_filter in OrderStatus.values:
+        orders_qs = orders_qs.filter(status=status_filter)
+
+    # Per-status counts for the filter tabs, one query rather than one
+    # per tab.
+    status_counts = dict(
+        Order.objects
+        .filter(shop=shop)
+        .values("status")
+        .annotate(count=Count("id"))
+        .values_list("status", "count")
+    )
+    status_tabs = [
+        {"value": value, "label": label, "count": status_counts.get(value, 0)}
+        for value, label in OrderStatus.choices
+    ]
+
+    paginator = Paginator(orders_qs, ORDERS_PER_PAGE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    return render(request, "dashboard/shop_orders.html", {
+        "shop": shop,
+        "page_obj": page_obj,
+        "status_filter": status_filter,
+        "status_tabs": status_tabs,
+        "total_orders": Order.objects.filter(shop=shop).count(),
+    })
+
+
+@login_required
+def order_detail_view(request, shop_slug, order_id):
+    """
+    Single order detail — line items, table number, customer note.
+
+    Three-hop-style ownership check (order id + shop slug + shop
+    owner), all in one joined queryset — same defensive pattern as
+    Product's three-hop ownership check.
+    """
+    order = get_object_or_404(
+        Order.objects.select_related("shop").prefetch_related("items"),
+        pk=order_id,
+        shop__slug=shop_slug,
+        shop__owner=request.user,
+    )
+    return render(request, "dashboard/order_detail.html", {
+        "shop": order.shop,
+        "order": order,
+    })
+
+    
