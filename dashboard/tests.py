@@ -342,4 +342,119 @@ class OrderDetailTests(TestCase):
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
+
+
+class UpdateOrderStatusViewTests(TestCase):
+ 
+    def setUp(self):
+        self.owner = make_verified_user("statusupdate@example.com")
+        self.other_owner = make_verified_user("otherstatusupdate@example.com")
+ 
+        self.shop = make_shop(self.owner, "My Shop")
+        self.second_shop = make_shop(self.owner, "My Other Shop")
+        self.other_shop = make_shop(self.other_owner, "Not Mine")
+ 
+        self.cat = make_category(self.shop)
+        self.product = make_product(self.cat, "Momo", "150.00", stock=10)
+        self.order = make_order(self.shop, self.product, quantity=3)
+ 
+        self.url = reverse(
+            "dashboard:update_order_status", args=[self.shop.slug, self.order.id]
+        )
+        self.client.login(username="statusupdate@example.com", password=VALID_PASSWORD)
+ 
+    # ── Auth / ownership ──
+ 
+    def test_anonymous_user_redirected_to_login(self):
+        self.client.logout()
+        resp = self.client.post(self.url, {"new_status": "preparing"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login", resp.url)
+ 
+    def test_get_request_not_allowed(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 405)
+ 
+    def test_other_owners_order_returns_404(self):
+        url = reverse(
+            "dashboard:update_order_status", args=[self.other_shop.slug, self.order.id]
+        )
+        resp = self.client.post(url, {"new_status": "preparing"})
+        self.assertEqual(resp.status_code, 404)
+ 
+    def test_order_via_different_own_shop_returns_404(self):
+        """Same trap as order_detail_view: the shop in the URL must be
+        the order's actual shop, not just any shop this user owns."""
+        url = reverse(
+            "dashboard:update_order_status", args=[self.second_shop.slug, self.order.id]
+        )
+        resp = self.client.post(url, {"new_status": "preparing"})
+        self.assertEqual(resp.status_code, 404)
+ 
+    # ── Valid transitions ──
+ 
+    def test_valid_transition_updates_status(self):
+        self.client.post(self.url, {"new_status": "preparing"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.PREPARING)
+ 
+    def test_valid_transition_decrements_stock(self):
+        self.client.post(self.url, {"new_status": "preparing"})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 7)
+ 
+    def test_valid_transition_redirects_to_order_detail(self):
+        resp = self.client.post(self.url, {"new_status": "preparing"})
+        expected = reverse("dashboard:order_detail", args=[self.shop.slug, self.order.id])
+        self.assertRedirects(resp, expected)
+ 
+    def test_valid_transition_shows_success_message(self):
+        resp = self.client.post(self.url, {"new_status": "preparing"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("Preparing" in m for m in messages))
+ 
+    def test_cancel_after_preparing_restores_stock(self):
+        self.client.post(self.url, {"new_status": "preparing"})
+        self.client.post(self.url, {"new_status": "cancelled"})
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 10)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.CANCELLED)
+ 
+    # ── Invalid input ──
+ 
+    def test_missing_new_status_shows_error(self):
+        resp = self.client.post(self.url, {}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("not a valid" in m for m in messages))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.PENDING)
+ 
+    def test_garbage_new_status_shows_error(self):
+        resp = self.client.post(self.url, {"new_status": "on-fire"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("not a valid" in m for m in messages))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.PENDING)
+ 
+    def test_illegal_transition_shows_error_and_does_not_change_status(self):
+        """pending -> ready skips a step and must be rejected."""
+        resp = self.client.post(self.url, {"new_status": "ready"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(len(messages) >= 1)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.PENDING)
+ 
+    def test_illegal_transition_does_not_touch_stock(self):
+        self.client.post(self.url, {"new_status": "ready"})  # rejected
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 10)
+ 
+    def test_transition_from_terminal_ready_state_rejected(self):
+        self.client.post(self.url, {"new_status": "preparing"})
+        self.client.post(self.url, {"new_status": "ready"})
+        resp = self.client.post(self.url, {"new_status": "cancelled"}, follow=True)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, OrderStatus.READY)  # unchanged
+
         

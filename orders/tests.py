@@ -40,7 +40,7 @@ from accounts.models import User
 from shops.models import Shop
 from categories.models import Category
 from products.models import Product
-from .models import Order, OrderItem, OrderStatus, PaymentStatus, PaymentMethod
+from .models import Order, OrderItem, OrderStatus, PaymentStatus, PaymentMethod, OrderTransitionError
 
 
 VALID_PASSWORD = "StrongPass123!"
@@ -879,4 +879,272 @@ class PlaceOrderShopStatusTests(TestCase):
         )
         self.assertEqual(resp.status_code, 404)
 
-        
+
+# ─────────────────────────────────────────────
+# Order.transition_status() — state machine
+# ─────────────────────────────────────────────
+ 
+class OrderTransitionTests(TestCase):
+ 
+    def setUp(self):
+        owner = make_verified_user("transitions@example.com")
+        self.shop = make_shop(owner)
+        cat = make_category(self.shop)
+        self.product = make_product(cat, stock=10)
+ 
+    def _pending_order(self):
+        return Order.create_from_cart(
+            shop=self.shop, cart_items=make_cart_items(self.product),
+        )
+ 
+    def test_pending_to_preparing_allowed(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+ 
+    def test_pending_to_cancelled_allowed(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.CANCELLED)
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+ 
+    def test_preparing_to_ready_allowed(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.READY)
+        self.assertEqual(order.status, OrderStatus.READY)
+ 
+    def test_preparing_to_cancelled_allowed(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.CANCELLED)
+        self.assertEqual(order.status, OrderStatus.CANCELLED)
+ 
+    def test_pending_to_ready_not_allowed(self):
+        order = self._pending_order()
+        with self.assertRaises(OrderTransitionError):
+            order.transition_status(OrderStatus.READY)
+ 
+    def test_ready_is_terminal(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.READY)
+        with self.assertRaises(OrderTransitionError):
+            order.transition_status(OrderStatus.CANCELLED)
+        with self.assertRaises(OrderTransitionError):
+            order.transition_status(OrderStatus.PREPARING)
+ 
+    def test_cancelled_is_terminal(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.CANCELLED)
+        with self.assertRaises(OrderTransitionError):
+            order.transition_status(OrderStatus.PREPARING)
+        with self.assertRaises(OrderTransitionError):
+            order.transition_status(OrderStatus.READY)
+ 
+    def test_invalid_transition_persists_nothing(self):
+        """A rejected transition must not silently change the DB row."""
+        order = self._pending_order()
+        try:
+            order.transition_status(OrderStatus.READY)
+        except OrderTransitionError:
+            pass
+        order.refresh_from_db()
+        self.assertEqual(order.status, OrderStatus.PENDING)
+ 
+    def test_transition_returns_self(self):
+        order = self._pending_order()
+        result = order.transition_status(OrderStatus.PREPARING)
+        self.assertIs(result, order)
+ 
+    def test_transition_persists_to_db(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        refreshed = Order.objects.get(pk=order.pk)
+        self.assertEqual(refreshed.status, OrderStatus.PREPARING)
+ 
+    def test_error_message_names_order_and_statuses(self):
+        order = self._pending_order()
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.READY)
+        with self.assertRaises(OrderTransitionError) as ctx:
+            order.transition_status(OrderStatus.PREPARING)
+        message = str(ctx.exception)
+        self.assertIn(order.order_number_display, message)
+        self.assertIn("ready", message)
+        self.assertIn("preparing", message)
+ 
+ 
+# ─────────────────────────────────────────────
+# Stock decrement / restore on transition
+# ─────────────────────────────────────────────
+ 
+class OrderTransitionStockTests(TestCase):
+ 
+    def setUp(self):
+        owner = make_verified_user("transitionstock@example.com")
+        self.shop = make_shop(owner)
+        self.cat = make_category(self.shop)
+ 
+    def test_preparing_decrements_stock_single_item(self):
+        product = make_product(self.cat, "Momo", "150.00", stock=10)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 3}],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, 7)
+ 
+    def test_preparing_decrements_stock_multiple_items(self):
+        product_a = make_product(self.cat, "Momo", "150.00", stock=10)
+        product_b = make_product(self.cat, "Coke", "60.00", stock=5)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[
+                {"id": str(product_a.id), "name": product_a.name,
+                 "price": str(product_a.price), "quantity": 2},
+                {"id": str(product_b.id), "name": product_b.name,
+                 "price": str(product_b.price), "quantity": 4},
+            ],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        product_a.refresh_from_db()
+        product_b.refresh_from_db()
+        self.assertEqual(product_a.stock_quantity, 8)
+        self.assertEqual(product_b.stock_quantity, 1)
+ 
+    def test_preparing_can_drive_allow_over_order_stock_negative(self):
+        product = make_product(self.cat, "Made To Order", "80.00", stock=0)
+        product.allow_over_order = True
+        product.save()
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 3}],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, -3)
+ 
+    def test_preparing_skips_item_with_deleted_product(self):
+        product = make_product(self.cat, "Doomed Item", "50.00", stock=5)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 2}],
+        )
+        product.delete()
+        # Must not raise — item.product is now None, transition still succeeds.
+        order.transition_status(OrderStatus.PREPARING)
+        self.assertEqual(order.status, OrderStatus.PREPARING)
+ 
+    def test_pending_to_cancelled_does_not_touch_stock(self):
+        product = make_product(self.cat, "Momo", "150.00", stock=10)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 3}],
+        )
+        order.transition_status(OrderStatus.CANCELLED)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, 10)
+ 
+    def test_preparing_to_ready_does_not_decrement_again(self):
+        product = make_product(self.cat, "Momo", "150.00", stock=10)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 3}],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.READY)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, 7)  # still just the one decrement
+ 
+    def test_preparing_to_cancelled_restores_stock(self):
+        product = make_product(self.cat, "Momo", "150.00", stock=10)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(product.id), "name": product.name,
+                         "price": str(product.price), "quantity": 3}],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, 7)
+ 
+        order.transition_status(OrderStatus.CANCELLED)
+        product.refresh_from_db()
+        self.assertEqual(product.stock_quantity, 10)  # fully restored
+ 
+    def test_preparing_to_cancelled_restores_multiple_items_correctly(self):
+        product_a = make_product(self.cat, "Momo", "150.00", stock=10)
+        product_b = make_product(self.cat, "Coke", "60.00", stock=5)
+        order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[
+                {"id": str(product_a.id), "name": product_a.name,
+                 "price": str(product_a.price), "quantity": 2},
+                {"id": str(product_b.id), "name": product_b.name,
+                 "price": str(product_b.price), "quantity": 4},
+            ],
+        )
+        order.transition_status(OrderStatus.PREPARING)
+        order.transition_status(OrderStatus.CANCELLED)
+        product_a.refresh_from_db()
+        product_b.refresh_from_db()
+        self.assertEqual(product_a.stock_quantity, 10)
+        self.assertEqual(product_b.stock_quantity, 5)
+ 
+ 
+# ─────────────────────────────────────────────
+# Race condition — concurrent transition attempts (SQLite skip)
+# ─────────────────────────────────────────────
+ 
+@REQUIRES_ROW_LOCKING
+class OrderTransitionRaceConditionTests(TransactionTestCase):
+    """
+    Two simultaneous "mark Preparing" clicks on the same order (e.g. a
+    double-tap, or two staff members tapping at once) must result in
+    exactly one successful transition and exactly one stock decrement
+    — not two, and not a corrupted stock count from an unguarded race.
+    """
+ 
+    def setUp(self):
+        self.owner = make_verified_user("transitionrace@example.com")
+        self.shop = make_shop(self.owner)
+        cat = make_category(self.shop)
+        self.product = make_product(cat, "Momo", "150.00", stock=10)
+        self.order = Order.create_from_cart(
+            shop=self.shop,
+            cart_items=[{"id": str(self.product.id), "name": self.product.name,
+                         "price": str(self.product.price), "quantity": 3}],
+        )
+ 
+    def test_concurrent_preparing_transition_decrements_stock_once(self):
+        import threading
+        from django.db import connection
+ 
+        successes = []
+        failures = []
+ 
+        def attempt():
+            try:
+                order = Order.objects.get(pk=self.order.pk)
+                order.transition_status(OrderStatus.PREPARING)
+                successes.append(order)
+            except OrderTransitionError as e:
+                failures.append(e)
+            finally:
+                connection.close()
+ 
+        t1 = threading.Thread(target=attempt)
+        t2 = threading.Thread(target=attempt)
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+ 
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 1)
+ 
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock_quantity, 7)  # decremented exactly once
