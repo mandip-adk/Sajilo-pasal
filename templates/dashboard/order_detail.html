@@ -35,17 +35,43 @@
         </span>
       </div>
 
-      <div class="row mb-3" style="font-size:0.88rem;">
-        <div class="col-6">
-          <div class="text-muted">Table / order for</div>
-          <div class="fw-semibold">{{ order.table_number|default:"—" }}</div>
+      <div class="mb-3" style="font-size:0.88rem;">
+        <div class="text-muted">Table / order for</div>
+        <div class="fw-semibold">{{ order.table_number|default:"—" }}</div>
+      </div>
+
+      <div class="border rounded p-3 mb-3" style="font-size:0.85rem;">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold">Payment</span>
+          <span class="badge {% if order.payment_status == 'paid' %}bg-success{% else %}bg-secondary{% endif %}">
+            {{ order.get_payment_status_display }}
+          </span>
         </div>
-        <div class="col-6">
-          <div class="text-muted">Payment</div>
-          <div class="fw-semibold">
-            {{ order.get_payment_method_display }}
-            · {{ order.get_payment_status_display }}
-          </div>
+
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          {% if order.status != 'cancelled' %}
+            <form method="post" action="{% url 'dashboard:update_order_payment' shop.slug order.id %}">
+              {% csrf_token %}
+              <input type="hidden" name="payment_status"
+                     value="{% if order.payment_status == 'paid' %}unpaid{% else %}paid{% endif %}">
+              <button type="submit"
+                      class="btn btn-sm {% if order.payment_status == 'paid' %}btn-outline-secondary{% else %}btn-success{% endif %}">
+                {% if order.payment_status == 'paid' %}Mark Unpaid{% else %}Mark Paid{% endif %}
+              </button>
+            </form>
+          {% else %}
+            <span class="text-muted" style="font-size:0.8rem;">Payment status locked — order cancelled.</span>
+          {% endif %}
+
+          <form method="post" action="{% url 'dashboard:update_order_payment' shop.slug order.id %}"
+                class="d-flex gap-1 align-items-center ms-auto">
+            {% csrf_token %}
+            <select name="payment_method" class="form-select form-select-sm" style="width:auto;">
+              <option value="cash" {% if order.payment_method == 'cash' %}selected{% endif %}>Cash</option>
+              <option value="fonepay" {% if order.payment_method == 'fonepay' %}selected{% endif %}>Fonepay QR</option>
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline-primary">Update Method</button>
+          </form>
         </div>
       </div>
 
@@ -101,4 +127,3 @@
 
 </div>
 {% endblock %}
-

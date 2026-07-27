@@ -40,6 +40,9 @@
               <div class="text-muted" style="font-size:0.8rem;">
                 {{ order.item_count }} item{{ order.item_count|pluralize }}
                 · {{ order.created_at|date:"d M, g:i A" }}
+                {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}
+                  <span class="badge bg-danger ms-1" style="font-size:0.68rem;">Unpaid</span>
+                {% endif %}
               </div>
             </div>
             <div class="text-end">

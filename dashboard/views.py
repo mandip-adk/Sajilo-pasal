@@ -5,7 +5,10 @@ from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from orders.models import Order, OrderStatus, OrderTransitionError
+from orders.models import (
+    Order, OrderStatus, OrderTransitionError,
+    PaymentStatus, PaymentMethod, OrderPaymentError,
+)
 from shops.models import Shop
 
 ORDERS_PER_PAGE = 20
@@ -172,4 +175,58 @@ def update_order_status_view(request, shop_slug, order_id):
 
     return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
 
+
+@login_required
+@require_POST
+def update_order_payment_view(request, shop_slug, order_id):
+    """
+    Day 15 — payment status / method tracking from the order detail
+    page. Same three-hop ownership check as the other order-mutating
+    views.
+
+    The dashboard submits payment_status and payment_method as two
+    separate forms (a "Mark Paid"/"Mark Unpaid" toggle, and a method
+    correction dropdown), so a single request here only ever carries
+    one of the two POST keys in practice — but both are read and
+    passed through if present, since Order.update_payment() supports
+    updating either or both in one call.
+    """
+    order = get_object_or_404(
+        Order,
+        pk=order_id,
+        shop__slug=shop_slug,
+        shop__owner=request.user,
+    )
+
+    payment_status = request.POST.get("payment_status") or None
+    payment_method = request.POST.get("payment_method") or None
+
+    if payment_status is None and payment_method is None:
+        messages.error(request, "No payment change was submitted.")
+        return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+    if payment_status is not None and payment_status not in PaymentStatus.values:
+        messages.error(request, "That's not a valid payment status.")
+        return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+    if payment_method is not None and payment_method not in PaymentMethod.values:
+        messages.error(request, "That's not a valid payment method.")
+        return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+    try:
+        order.update_payment(payment_status=payment_status, payment_method=payment_method)
+    except OrderPaymentError as exc:
+        messages.error(request, str(exc))
+    else:
+        parts = []
+        if payment_status is not None:
+            parts.append(order.get_payment_status_display())
+        if payment_method is not None:
+            parts.append(order.get_payment_method_display())
+        messages.success(
+            request,
+            f"Order {order.order_number_display} updated: {', '.join(parts)}.",
+        )
+
+    return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
 
