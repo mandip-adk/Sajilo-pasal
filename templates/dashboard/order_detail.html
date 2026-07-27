@@ -7,6 +7,15 @@
     <i class="bi bi-arrow-left"></i> Back to orders
   </a>
 
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} mt-2 mb-0 py-2 px-3"
+           style="font-size:0.85rem;">
+        {{ message }}
+      </div>
+    {% endfor %}
+  {% endif %}
+
   <div class="card shadow-sm mt-2">
     <div class="card-body">
 
@@ -73,8 +82,19 @@
         </tfoot>
       </table>
 
-      <!-- Status-change controls (mark Preparing / Ready / Cancelled)
-           arrive on Day 14. This view is intentionally read-only. -->
+      {% if next_actions %}
+        <div class="d-flex gap-2 mt-3">
+          {% for value, label, css_class in next_actions %}
+            <form method="post"
+                  action="{% url 'dashboard:update_order_status' shop.slug order.id %}"
+                  class="flex-grow-1">
+              {% csrf_token %}
+              <input type="hidden" name="new_status" value="{{ value }}">
+              <button type="submit" class="btn {{ css_class }} w-100">{{ label }}</button>
+            </form>
+          {% endfor %}
+        </div>
+      {% endif %}
 
     </div>
   </div>

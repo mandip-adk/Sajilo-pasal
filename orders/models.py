@@ -22,6 +22,31 @@ class PaymentMethod(models.TextChoices):
     # eSewa and Khalti reserved for future enhancement per SDD roadmap
 
 
+class OrderTransitionError(Exception):
+    """
+    Raised when Order.transition_status() is asked to move an order
+    between two statuses that aren't a valid next step (e.g. Ready ->
+    Preparing, or Cancelled -> anything). Deliberately a hard error
+    rather than a silent no-op, so a bug in the calling view surfaces
+    immediately instead of quietly failing to update an order.
+    """
+    pass
+
+
+# Day 14 — the order status state machine.
+#
+# READY and CANCELLED are terminal: once food is ready or an order is
+# cancelled, there's no path back. This matches how a kitchen actually
+# works — an owner doesn't "un-ready" a plate, and cancelling after
+# pickup/serving isn't a real scenario worth supporting here.
+ALLOWED_TRANSITIONS = {
+    OrderStatus.PENDING:   {OrderStatus.PREPARING, OrderStatus.CANCELLED},
+    OrderStatus.PREPARING: {OrderStatus.READY, OrderStatus.CANCELLED},
+    OrderStatus.READY:     set(),
+    OrderStatus.CANCELLED: set(),
+}
+
+
 class Order(models.Model):
     """
     A customer order placed from the public menu page.
@@ -136,9 +161,10 @@ class Order(models.Model):
         single atomic transaction. The entire create is wrapped so:
         - order_number generation (select_for_update) is race-safe
         - if any OrderItem save fails, the whole order rolls back
-        - stock is NOT decremented here — that happens on Day 12 when
-          the owner marks an order as 'Preparing' (confirming the order
-          is real before consuming stock)
+        - stock is NOT decremented here — that happens in
+          transition_status() when the owner marks an order as
+          'Preparing' (confirming the order is real before consuming
+          stock), added on Day 14
 
         cart_items: list of dicts with keys:
             id       — product id (str or int)
@@ -185,6 +211,65 @@ class Order(models.Model):
             order.save(update_fields=["subtotal"])
 
         return order
+
+    def transition_status(self, new_status):
+        """
+        Day 14 — the single place order status changes happen.
+
+        Validates the transition against ALLOWED_TRANSITIONS, then:
+          - PENDING -> PREPARING: decrements stock for every line item
+            whose product still exists. product FK is SET_NULL, so an
+            item whose product was later deleted is simply skipped —
+            there's nothing left to decrement against.
+          - PREPARING -> CANCELLED: restores the stock that was taken
+            on the Preparing transition, so a cancelled order doesn't
+            permanently understate inventory.
+          - Every other allowed transition (PENDING -> CANCELLED,
+            PREPARING -> READY) has no stock effect — stock was never
+            touched for an order that's still Pending.
+
+        Runs inside select_for_update() on this order row so two
+        concurrent status-change requests for the same order (e.g. a
+        double-tap on the dashboard) serialize instead of both reading
+        the same starting status and both trying to decrement stock.
+
+        Raises OrderTransitionError for any transition not in
+        ALLOWED_TRANSITIONS. Returns self, refreshed to the new status.
+        """
+        with transaction.atomic():
+            locked = Order.objects.select_for_update().get(pk=self.pk)
+
+            allowed = ALLOWED_TRANSITIONS.get(locked.status, set())
+            if new_status not in allowed:
+                raise OrderTransitionError(
+                    f"Cannot move order {locked.order_number_display} "
+                    f"from '{locked.status}' to '{new_status}'."
+                )
+
+            if new_status == OrderStatus.PREPARING:
+                locked._adjust_stock_for_items(sign=-1)
+            elif new_status == OrderStatus.CANCELLED and locked.status == OrderStatus.PREPARING:
+                locked._adjust_stock_for_items(sign=+1)
+
+            locked.status = new_status
+            locked.save(update_fields=["status"])
+
+            self.status = locked.status
+            return self
+
+    def _adjust_stock_for_items(self, sign):
+        """
+        sign: -1 to decrement (moving to Preparing), +1 to restore
+        (cancelling out of Preparing). Each item's own adjust_stock()
+        is already race-safe (select_for_update on the product row),
+        so this just walks the order's items and calls it per item —
+        the outer transaction in transition_status() covers the order
+        row, this covers each product row individually.
+        """
+        for item in self.items.select_related("product").all():
+            if item.product_id is None:
+                continue
+            item.product.adjust_stock(sign * item.quantity)
 
 
 class OrderItem(models.Model):

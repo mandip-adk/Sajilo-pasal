@@ -1,12 +1,32 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
-from orders.models import Order, OrderStatus
+from orders.models import Order, OrderStatus, OrderTransitionError
 from shops.models import Shop
 
 ORDERS_PER_PAGE = 20
+
+# Day 14 — UI presentation of Order.ALLOWED_TRANSITIONS. Kept separate
+# from the model's state machine on purpose: this is "what button do
+# we show and what does it say", not "what's a legal transition" —
+# that validation lives in Order.transition_status() itself and is
+# re-checked there regardless of what this dict offers.
+NEXT_STATUS_ACTIONS = {
+    OrderStatus.PENDING: [
+        (OrderStatus.PREPARING, "Start Preparing", "btn-primary"),
+        (OrderStatus.CANCELLED, "Cancel Order", "btn-outline-danger"),
+    ],
+    OrderStatus.PREPARING: [
+        (OrderStatus.READY, "Mark Ready", "btn-success"),
+        (OrderStatus.CANCELLED, "Cancel Order", "btn-outline-danger"),
+    ],
+    OrderStatus.READY: [],
+    OrderStatus.CANCELLED: [],
+}
 
 
 @login_required
@@ -111,6 +131,45 @@ def order_detail_view(request, shop_slug, order_id):
     return render(request, "dashboard/order_detail.html", {
         "shop": order.shop,
         "order": order,
+        "next_actions": NEXT_STATUS_ACTIONS.get(order.status, []),
     })
 
-    
+
+@login_required
+@require_POST
+def update_order_status_view(request, shop_slug, order_id):
+    """
+    Day 14 — the owner's status-change action from the order detail
+    page. Same three-hop ownership check as order_detail_view, so this
+    can't be used to mutate an order that isn't the logged-in owner's.
+
+    Delegates all transition validity + stock adjustment to
+    Order.transition_status() — this view is just the HTTP wrapper:
+    read the requested status, call the model method, translate the
+    result (or OrderTransitionError) into a message, redirect back.
+    """
+    order = get_object_or_404(
+        Order,
+        pk=order_id,
+        shop__slug=shop_slug,
+        shop__owner=request.user,
+    )
+
+    new_status = request.POST.get("new_status", "")
+    if new_status not in OrderStatus.values:
+        messages.error(request, "That's not a valid order status.")
+        return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+    try:
+        order.transition_status(new_status)
+    except OrderTransitionError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            f"Order {order.order_number_display} marked {order.get_status_display()}.",
+        )
+
+    return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+
