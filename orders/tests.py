@@ -40,7 +40,7 @@ from accounts.models import User
 from shops.models import Shop
 from categories.models import Category
 from products.models import Product
-from .models import Order, OrderItem, OrderStatus, PaymentStatus, PaymentMethod, OrderTransitionError
+from .models import Order, OrderItem, OrderStatus, PaymentStatus, PaymentMethod, OrderTransitionError,OrderPaymentError
 
 
 VALID_PASSWORD = "StrongPass123!"
@@ -1148,3 +1148,120 @@ class OrderTransitionRaceConditionTests(TransactionTestCase):
  
         self.product.refresh_from_db()
         self.assertEqual(self.product.stock_quantity, 7)  # decremented exactly once
+
+
+
+class OrderPaymentUpdateTests(TestCase):
+ 
+    def setUp(self):
+        owner = make_verified_user("payment@example.com")
+        self.shop = make_shop(owner)
+        cat = make_category(self.shop)
+        self.product = make_product(cat, stock=10)
+ 
+    def _order(self):
+        return Order.create_from_cart(
+            shop=self.shop, cart_items=make_cart_items(self.product),
+        )
+ 
+    def test_update_payment_status_to_paid(self):
+        order = self._order()
+        order.update_payment(payment_status=PaymentStatus.PAID)
+        self.assertEqual(order.payment_status, PaymentStatus.PAID)
+ 
+    def test_update_payment_status_back_to_unpaid(self):
+        order = self._order()
+        order.update_payment(payment_status=PaymentStatus.PAID)
+        order.update_payment(payment_status=PaymentStatus.UNPAID)
+        self.assertEqual(order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_update_payment_method(self):
+        order = self._order()
+        order.update_payment(payment_method=PaymentMethod.FONEPAY)
+        self.assertEqual(order.payment_method, PaymentMethod.FONEPAY)
+ 
+    def test_update_both_fields_at_once(self):
+        order = self._order()
+        order.update_payment(payment_status=PaymentStatus.PAID, payment_method=PaymentMethod.FONEPAY)
+        self.assertEqual(order.payment_status, PaymentStatus.PAID)
+        self.assertEqual(order.payment_method, PaymentMethod.FONEPAY)
+ 
+    def test_invalid_payment_status_raises(self):
+        order = self._order()
+        with self.assertRaises(OrderPaymentError):
+            order.update_payment(payment_status="not-a-status")
+ 
+    def test_invalid_payment_method_raises(self):
+        order = self._order()
+        with self.assertRaises(OrderPaymentError):
+            order.update_payment(payment_method="bitcoin")
+ 
+    def test_invalid_value_does_not_persist(self):
+        order = self._order()
+        try:
+            order.update_payment(payment_status="not-a-status")
+        except OrderPaymentError:
+            pass
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_payment_status_blocked_on_cancelled_order(self):
+        order = self._order()
+        order.transition_status(OrderStatus.CANCELLED)
+        with self.assertRaises(OrderPaymentError):
+            order.update_payment(payment_status=PaymentStatus.PAID)
+ 
+    def test_payment_status_unchanged_after_blocked_attempt(self):
+        order = self._order()
+        order.transition_status(OrderStatus.CANCELLED)
+        try:
+            order.update_payment(payment_status=PaymentStatus.PAID)
+        except OrderPaymentError:
+            pass
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_payment_method_allowed_on_cancelled_order(self):
+        order = self._order()
+        order.transition_status(OrderStatus.CANCELLED)
+        order.update_payment(payment_method=PaymentMethod.FONEPAY)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_method, PaymentMethod.FONEPAY)
+ 
+    def test_both_fields_on_cancelled_order_rolls_back_entirely(self):
+        """
+        Documented edge case: passing both args together on a
+        cancelled order rolls back the WHOLE call, including the
+        payment_method change, since both run in one atomic block.
+        """
+        order = self._order()
+        order.transition_status(OrderStatus.CANCELLED)
+        try:
+            order.update_payment(
+                payment_status=PaymentStatus.PAID,
+                payment_method=PaymentMethod.FONEPAY,
+            )
+        except OrderPaymentError:
+            pass
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, PaymentStatus.UNPAID)
+        self.assertEqual(order.payment_method, PaymentMethod.CASH)  # unchanged too
+ 
+    def test_update_payment_returns_self(self):
+        order = self._order()
+        result = order.update_payment(payment_status=PaymentStatus.PAID)
+        self.assertIs(result, order)
+ 
+    def test_update_payment_persists_to_db(self):
+        order = self._order()
+        order.update_payment(payment_status=PaymentStatus.PAID)
+        refreshed = Order.objects.get(pk=order.pk)
+        self.assertEqual(refreshed.payment_status, PaymentStatus.PAID)
+ 
+    def test_no_arguments_is_a_safe_no_op(self):
+        order = self._order()
+        result = order.update_payment()
+        self.assertEqual(result.payment_status, PaymentStatus.UNPAID)
+        self.assertEqual(result.payment_method, PaymentMethod.CASH)
+
+        

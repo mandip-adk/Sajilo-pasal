@@ -9,9 +9,23 @@ from orders.models import (
     Order, OrderStatus, OrderTransitionError,
     PaymentStatus, PaymentMethod, OrderPaymentError,
 )
+from products.models import Product
 from shops.models import Shop
 
 ORDERS_PER_PAGE = 20
+
+# Day 17 — expresses Product.is_low_stock as a queryset filter rather
+# than calling the property in Python. Must be kept in sync with that
+# property's logic (0 < stock_quantity <= 5, and never true for
+# allow_over_order items since their stock isn't a hard constraint).
+# Doing it as a filter, not a Python loop over every product, is what
+# makes a per-shop badge count and a multi-shop aggregate both a
+# single query instead of loading every product into memory to check.
+LOW_STOCK_FILTER = dict(
+    allow_over_order=False,
+    stock_quantity__gt=0,
+    stock_quantity__lte=5,
+)
 
 # Day 14 — UI presentation of Order.ALLOWED_TRANSITIONS. Kept separate
 # from the model's state machine on purpose: this is "what button do
@@ -62,6 +76,18 @@ def dashboard_home_view(request):
     for shop in shops:
         shop.pending_count = pending_counts.get(shop.id, 0)
 
+    # Day 17 — low-stock count per shop, same one-query-not-N pattern
+    # as pending_counts above.
+    low_stock_counts = dict(
+        Product.objects
+        .filter(category__shop__owner=request.user, **LOW_STOCK_FILTER)
+        .values("category__shop_id")
+        .annotate(count=Count("id"))
+        .values_list("category__shop_id", "count")
+    )
+    for shop in shops:
+        shop.low_stock_count = low_stock_counts.get(shop.id, 0)
+
     return render(request, "dashboard/home.html", {"shops": shops})
 
 
@@ -107,12 +133,16 @@ def shop_orders_view(request, shop_slug):
     paginator = Paginator(orders_qs, ORDERS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
 
+    # Day 17 — feeds the low-stock banner at the top of this page.
+    low_stock_count = Product.objects.filter(category__shop=shop, **LOW_STOCK_FILTER).count()
+
     return render(request, "dashboard/shop_orders.html", {
         "shop": shop,
         "page_obj": page_obj,
         "status_filter": status_filter,
         "status_tabs": status_tabs,
         "total_orders": Order.objects.filter(shop=shop).count(),
+        "low_stock_count": low_stock_count,
     })
 
 
@@ -164,7 +194,7 @@ def update_order_status_view(request, shop_slug, order_id):
         return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
 
     try:
-        order.transition_status(new_status)
+        order.transition_status(new_status, actor=request.user)
     except OrderTransitionError as exc:
         messages.error(request, str(exc))
     else:
@@ -229,4 +259,32 @@ def update_order_payment_view(request, shop_slug, order_id):
         )
 
     return redirect("dashboard:order_detail", shop_slug=shop_slug, order_id=order_id)
+
+
+@login_required
+def low_stock_view(request, shop_slug):
+    """
+    Day 17 — dedicated low-stock list for a single shop.
+
+    Same LOW_STOCK_FILTER as the badge counts above, so a product that
+    shows up in the shop switcher's badge or the order-list banner is
+    guaranteed to also appear here — one definition of "low stock",
+    not three that could drift out of sync.
+
+    Ordered by stock_quantity ascending: the shop's most urgent restock
+    need (1 left) surfaces above a less urgent one (5 left).
+    """
+    shop = get_object_or_404(Shop, slug=shop_slug, owner=request.user)
+
+    low_stock_products = (
+        Product.objects
+        .filter(category__shop=shop, **LOW_STOCK_FILTER)
+        .select_related("category")
+        .order_by("stock_quantity", "name")
+    )
+
+    return render(request, "dashboard/low_stock.html", {
+        "shop": shop,
+        "products": low_stock_products,
+    })
 

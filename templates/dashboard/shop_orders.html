@@ -8,6 +8,18 @@
   </a>
   <h4 class="fw-bold mb-3 mt-1">{{ shop.name }} — Orders</h4>
 
+  {% if low_stock_count %}
+    <a href="{% url 'dashboard:low_stock' shop.slug %}"
+       class="alert alert-warning d-flex justify-content-between align-items-center text-decoration-none mb-3"
+       style="font-size:0.85rem;">
+      <span>
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        {{ low_stock_count }} product{{ low_stock_count|pluralize }} running low on stock
+      </span>
+      <span class="text-nowrap">View <i class="bi bi-arrow-right"></i></span>
+    </a>
+  {% endif %}
+
   <!-- Status filter tabs -->
   <ul class="nav nav-pills mb-3 flex-nowrap overflow-auto" style="font-size:0.85rem;">
     <li class="nav-item">

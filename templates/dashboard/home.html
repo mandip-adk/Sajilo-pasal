@@ -36,11 +36,18 @@
                   <div class="fw-semibold text-dark">{{ shop.name }}</div>
                   <div class="text-muted" style="font-size:0.8rem;">{{ shop.get_shop_type_display }}</div>
                 </div>
-                {% if shop.pending_count %}
-                  <span class="badge rounded-pill text-white" style="background: var(--sajilo-accent);">
-                    {{ shop.pending_count }} pending
-                  </span>
-                {% endif %}
+                <div class="d-flex flex-column align-items-end gap-1">
+                  {% if shop.pending_count %}
+                    <span class="badge rounded-pill text-white" style="background: var(--sajilo-accent);">
+                      {{ shop.pending_count }} pending
+                    </span>
+                  {% endif %}
+                  {% if shop.low_stock_count %}
+                    <span class="badge rounded-pill bg-warning text-dark">
+                      <i class="bi bi-exclamation-triangle-fill"></i> {{ shop.low_stock_count }} low stock
+                    </span>
+                  {% endif %}
+                </div>
               </div>
             </div>
           </a>

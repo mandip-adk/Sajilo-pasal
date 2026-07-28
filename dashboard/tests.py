@@ -26,7 +26,7 @@ from accounts.models import User
 from shops.models import Shop
 from categories.models import Category
 from products.models import Product
-from orders.models import Order, OrderStatus
+from orders.models import Order, OrderStatus, PaymentStatus, PaymentMethod, OrderPaymentError
 
 
 VALID_PASSWORD = "StrongPass123!"
@@ -456,5 +456,123 @@ class UpdateOrderStatusViewTests(TestCase):
         resp = self.client.post(self.url, {"new_status": "cancelled"}, follow=True)
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, OrderStatus.READY)  # unchanged
+
+
+ 
+class UpdateOrderPaymentViewTests(TestCase):
+ 
+    def setUp(self):
+        self.owner = make_verified_user("paymentview@example.com")
+        self.other_owner = make_verified_user("otherpaymentview@example.com")
+ 
+        self.shop = make_shop(self.owner, "My Shop")
+        self.second_shop = make_shop(self.owner, "My Other Shop")
+        self.other_shop = make_shop(self.other_owner, "Not Mine")
+ 
+        self.cat = make_category(self.shop)
+        self.product = make_product(self.cat, "Momo", "150.00", stock=10)
+        self.order = make_order(self.shop, self.product)
+ 
+        self.url = reverse(
+            "dashboard:update_order_payment", args=[self.shop.slug, self.order.id]
+        )
+        self.client.login(username="paymentview@example.com", password=VALID_PASSWORD)
+ 
+    # ── Auth / ownership ──
+ 
+    def test_anonymous_user_redirected_to_login(self):
+        self.client.logout()
+        resp = self.client.post(self.url, {"payment_status": "paid"})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login", resp.url)
+ 
+    def test_get_request_not_allowed(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 405)
+ 
+    def test_other_owners_order_returns_404(self):
+        url = reverse(
+            "dashboard:update_order_payment", args=[self.other_shop.slug, self.order.id]
+        )
+        resp = self.client.post(url, {"payment_status": "paid"})
+        self.assertEqual(resp.status_code, 404)
+ 
+    def test_order_via_different_own_shop_returns_404(self):
+        url = reverse(
+            "dashboard:update_order_payment", args=[self.second_shop.slug, self.order.id]
+        )
+        resp = self.client.post(url, {"payment_status": "paid"})
+        self.assertEqual(resp.status_code, 404)
+ 
+    # ── Valid updates ──
+ 
+    def test_mark_paid_updates_status(self):
+        self.client.post(self.url, {"payment_status": "paid"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_status, PaymentStatus.PAID)
+ 
+    def test_mark_unpaid_after_paid(self):
+        self.client.post(self.url, {"payment_status": "paid"})
+        self.client.post(self.url, {"payment_status": "unpaid"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_update_payment_method(self):
+        self.client.post(self.url, {"payment_method": "fonepay"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_method, PaymentMethod.FONEPAY)
+ 
+    def test_valid_update_redirects_to_order_detail(self):
+        resp = self.client.post(self.url, {"payment_status": "paid"})
+        expected = reverse("dashboard:order_detail", args=[self.shop.slug, self.order.id])
+        self.assertRedirects(resp, expected)
+ 
+    def test_valid_update_shows_success_message(self):
+        resp = self.client.post(self.url, {"payment_status": "paid"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("Paid" in m for m in messages))
+ 
+    # ── Invalid input ──
+ 
+    def test_no_fields_submitted_shows_error(self):
+        resp = self.client.post(self.url, {}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("No payment change" in m for m in messages))
+ 
+    def test_invalid_payment_status_shows_error(self):
+        resp = self.client.post(self.url, {"payment_status": "crypto"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("not a valid payment status" in m for m in messages))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_invalid_payment_method_shows_error(self):
+        resp = self.client.post(self.url, {"payment_method": "crypto"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("not a valid payment method" in m for m in messages))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.payment_method, PaymentMethod.CASH)
+ 
+    # ── Cancelled-order rules ──
+ 
+    def test_payment_status_change_blocked_on_cancelled_order(self):
+        cancelled_order = make_order(self.shop, self.product, status=OrderStatus.CANCELLED)
+        url = reverse(
+            "dashboard:update_order_payment", args=[self.shop.slug, cancelled_order.id]
+        )
+        resp = self.client.post(url, {"payment_status": "paid"}, follow=True)
+        messages = [m.message for m in resp.context["messages"]]
+        self.assertTrue(any("cancelled" in m.lower() for m in messages))
+        cancelled_order.refresh_from_db()
+        self.assertEqual(cancelled_order.payment_status, PaymentStatus.UNPAID)
+ 
+    def test_payment_method_change_still_allowed_on_cancelled_order(self):
+        cancelled_order = make_order(self.shop, self.product, status=OrderStatus.CANCELLED)
+        url = reverse(
+            "dashboard:update_order_payment", args=[self.shop.slug, cancelled_order.id]
+        )
+        resp = self.client.post(url, {"payment_method": "fonepay"})
+        cancelled_order.refresh_from_db()
+        self.assertEqual(cancelled_order.payment_method, PaymentMethod.FONEPAY)
 
         
