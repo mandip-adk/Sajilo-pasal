@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 
 from shops.models import Shop
 from categories.models import Category
+from inventory.models import InventoryLog, InventoryLogReason
 from .models import Product
 from .forms import ProductForm
 
@@ -75,6 +76,27 @@ def product_create_view(request, shop_slug, category_id):
                         form.add_error(field if field in form.fields else None, error)
             else:
                 form.save()
+
+                # Day 16 — log the opening stock balance, if any. This is
+                # a direct .objects.create(), NOT InventoryLog.record():
+                # record() calls adjust_stock() to *apply* a delta, but
+                # here the stock value was already set and persisted by
+                # form.save() above — calling record() too would apply
+                # the same quantity a second time via the F() increment
+                # in adjust_stock(). This just documents what save()
+                # already did.
+                if form.instance.stock_quantity:
+                    InventoryLog.objects.create(
+                        product=form.instance,
+                        product_name=form.instance.name,
+                        shop=shop,
+                        reason=InventoryLogReason.INITIAL_STOCK,
+                        delta=form.instance.stock_quantity,
+                        resulting_stock=form.instance.stock_quantity,
+                        note="Initial stock at creation",
+                        created_by=request.user,
+                    )
+
                 messages.success(request, f'Product "{form.instance.name}" created.')
                 return redirect("products:list", shop_slug=shop.slug, category_id=category.id)
 
@@ -95,6 +117,14 @@ def product_edit_view(request, shop_slug, category_id, product_id):
     shop = _get_owned_shop_or_404(request, shop_slug)
     category = _get_owned_category_or_404(request, shop_slug, category_id)
     product = _get_owned_product_or_404(request, shop_slug, category_id, product_id)
+
+    # Day 16 — snapshot BEFORE binding the form. ProductForm(instance=product)
+    # means form.is_valid() -> full_clean() writes cleaned_data straight onto
+    # this same product instance, so product.stock_quantity already reflects
+    # the NEW value by the time we're past the is_valid() check below. This
+    # has to be captured here, or there's nothing left to diff against.
+    original_stock_quantity = product.stock_quantity
+
     form = ProductForm(request.POST or None, request.FILES or None, instance=product, category=category)
 
     if request.method == "POST":
@@ -107,6 +137,26 @@ def product_edit_view(request, shop_slug, category_id, product_id):
                         form.add_error(field if field in form.fields else None, error)
             else:
                 form.save()
+
+                # Day 16 — log a manual stock adjustment if the owner
+                # changed stock_quantity through this form. Same
+                # direct-create reasoning as product_create_view above:
+                # form.save() already persisted the new value, so this
+                # documents the change rather than applying it again.
+                new_stock_quantity = form.instance.stock_quantity
+                delta = new_stock_quantity - original_stock_quantity
+                if delta != 0:
+                    InventoryLog.objects.create(
+                        product=form.instance,
+                        product_name=form.instance.name,
+                        shop=shop,
+                        reason=InventoryLogReason.MANUAL,
+                        delta=delta,
+                        resulting_stock=new_stock_quantity,
+                        note="Stock updated via product edit form",
+                        created_by=request.user,
+                    )
+
                 messages.success(request, "Product updated.")
                 return redirect("products:list", shop_slug=shop.slug, category_id=category.id)
 
@@ -147,3 +197,4 @@ def product_toggle_availability_view(request, shop_slug, category_id, product_id
     messages.success(request, f'"{product.name}" marked as {state}.')
     return redirect("products:list", shop_slug=shop_slug, category_id=category_id)
 
+    

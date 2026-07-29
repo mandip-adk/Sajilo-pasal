@@ -5,15 +5,16 @@
 
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h4 class="fw-bold mb-0">Welcome, {{ request.user.short_name }}</h4>
-      <p class="text-muted mb-0" style="font-size:0.85rem;">Your shops</p>
+        <h4 class="fw-bold mb-0">Welcome, {{ request.user.short_name }}</h4>
+        <p class="text-muted mb-0" style="font-size:0.85rem;">Your shops</p>
     </div>
-    <form method="post" action="{% url 'accounts:logout' %}">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-outline-danger btn-sm">
-        <i class="bi bi-box-arrow-right me-1"></i>Logout
-      </button>
-    </form>
+
+    
+        
+    </div>
+</div>
+
+    
   </div>
 
   {% if shops %}
@@ -55,12 +56,22 @@
       {% endfor %}
     </div>
   {% else %}
-    <div class="text-center py-5 text-muted">
-      <i class="bi bi-shop display-4"></i>
-      <p class="mt-3">You don't have any shops yet.</p>
-    </div>
-  {% endif %}
+    <div class="text-center py-5">
+    <i class="bi bi-shop display-4 text-muted"></i>
 
+    <h5 class="mt-3">You don't have any shops yet.</h5>
+
+    <p class="text-muted">
+        Create your first shop to start managing products,
+        receiving orders, and generating QR menus.
+    </p>
+
+    <a href="{% url 'shops:create' %}" class="btn btn-success">
+        <i class="bi bi-plus-circle me-1"></i>
+        Create Your First Shop
+    </a>
+    {% endif %}
 </div>
+
 {% endblock %}
 
