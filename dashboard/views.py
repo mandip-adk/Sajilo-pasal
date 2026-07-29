@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -136,6 +136,15 @@ def shop_orders_view(request, shop_slug):
     # Day 17 — feeds the low-stock banner at the top of this page.
     low_stock_count = Product.objects.filter(category__shop=shop, **LOW_STOCK_FILTER).count()
 
+    # Day 20 — baseline for "new orders since page load" polling.
+    # Using the max Order id (not created_at) as the cutoff sidesteps
+    # timezone/precision edge cases and is a cheap indexed lookup —
+    # order_number is only unique per-shop so it can't serve as a
+    # global cutoff, but the PK can.
+    latest_seen_id = Order.objects.filter(shop=shop).aggregate(
+        Max("id")
+    )["id__max"] or 0
+
     return render(request, "dashboard/shop_orders.html", {
         "shop": shop,
         "page_obj": page_obj,
@@ -143,6 +152,7 @@ def shop_orders_view(request, shop_slug):
         "status_tabs": status_tabs,
         "total_orders": Order.objects.filter(shop=shop).count(),
         "low_stock_count": low_stock_count,
+        "latest_seen_id": latest_seen_id,
     })
 
 
@@ -286,5 +296,43 @@ def low_stock_view(request, shop_slug):
     return render(request, "dashboard/low_stock.html", {
         "shop": shop,
         "products": low_stock_products,
+    })
+
+
+@login_required
+def new_orders_check_view(request, shop_slug):
+    """
+    Day 20 — polled by HTMX every 15s from shop_orders.html.
+
+    Deliberately a COUNT query only, not a fetch of the actual new
+    orders — this runs on a timer for as long as the owner has the
+    tab open, so it needs to be cheap. Returns a small HTML partial
+    (not JSON) since it's swapped directly into the page by HTMX; a
+    non-intrusive banner rather than an auto-refreshing list, so a
+    poll landing mid-click on an order doesn't yank the page out from
+    under the owner.
+
+    ?since=<order id> is the cutoff (the max order id that existed
+    when the page was loaded — see shop_orders_view's latest_seen_id).
+    ?status is passed through only so the "tap to refresh" link can
+    preserve whatever status tab the owner is currently on.
+    """
+    shop = get_object_or_404(Shop, slug=shop_slug, owner=request.user)
+
+    try:
+        since_id = int(request.GET.get("since", "0"))
+    except (TypeError, ValueError):
+        since_id = 0
+
+    status_filter = request.GET.get("status", "")
+    if status_filter not in OrderStatus.values:
+        status_filter = ""
+
+    new_count = Order.objects.filter(shop=shop, id__gt=since_id).count()
+
+    return render(request, "dashboard/_new_orders_banner.html", {
+        "shop": shop,
+        "new_count": new_count,
+        "status_filter": status_filter,
     })
 

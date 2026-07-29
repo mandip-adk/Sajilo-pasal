@@ -8,6 +8,15 @@
   </a>
   <h4 class="fw-bold mb-3 mt-1">{{ shop.name }} — Orders</h4>
 
+  <!-- Day 20: polls every 15s for orders newer than latest_seen_id.
+       Empty on load and stays empty until the first poll finds
+       something — a non-intrusive banner, not an auto-swapping list,
+       so a poll landing mid-click doesn't yank the page around. -->
+  <div id="new-orders-banner"
+       hx-get="{% url 'dashboard:new_orders_check' shop.slug %}?since={{ latest_seen_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+       hx-trigger="every 15s"
+       hx-swap="innerHTML"></div>
+
   {% if low_stock_count %}
     <a href="{% url 'dashboard:low_stock' shop.slug %}"
        class="alert alert-warning d-flex justify-content-between align-items-center text-decoration-none mb-3"
@@ -108,3 +117,10 @@
 </div>
 {% endblock %}
 
+{% block extra_js %}
+<!-- Day 20 — HTMX for the new-orders polling banner above.
+     CHECK base/base.html before deploying: if HTMX is already loaded
+     globally there, remove this script tag — loading it twice per
+     page is wasteful (not broken, just double-fetches the library). -->
+<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+{% endblock %}

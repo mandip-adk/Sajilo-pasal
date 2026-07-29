@@ -1,0 +1,11 @@
+{% if new_count %}
+  <a href="{% url 'dashboard:shop_orders' shop.slug %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
+     class="alert alert-primary d-flex justify-content-between align-items-center text-decoration-none mb-3">
+    <span>
+      <i class="bi bi-bell-fill me-1"></i>
+      {{ new_count }} new order{{ new_count|pluralize }} — tap to refresh
+    </span>
+    <span class="text-nowrap">Refresh <i class="bi bi-arrow-clockwise"></i></span>
+  </a>
+{% endif %}
+
