@@ -67,3 +67,32 @@ def shop_edit_view(request, slug):
 
     return render(request, "shops/shop_form.html", {"form": form, "is_edit": True, "shop": shop})
 
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def shop_delete_view(request, slug):
+    """
+    Deleting a shop cascades to everything under it — categories,
+    products, orders, and inventory logs are all FK CASCADE to Shop.
+    This is destructive and irreversible, so we require the owner to
+    type the exact shop name back to confirm before anything happens.
+    GET just shows the confirmation page; nothing is deleted until POST.
+    """
+    shop = _get_owned_shop_or_404(request, slug)
+
+    if request.method == "POST":
+        confirmation = request.POST.get("confirm_name", "").strip()
+        if confirmation != shop.name:
+            messages.error(
+                request,
+                "Shop name didn't match. Nothing was deleted."
+            )
+            return render(request, "shops/shop_confirm_delete.html", {"shop": shop})
+
+        shop_name = shop.name
+        shop.delete()
+        messages.success(request, f'"{shop_name}" and all its data were deleted.')
+        return redirect("dashboard:home")
+
+    return render(request, "shops/shop_confirm_delete.html", {"shop": shop})
+

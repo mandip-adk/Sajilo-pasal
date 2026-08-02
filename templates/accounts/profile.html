@@ -1,0 +1,59 @@
+{% extends "base/base.html" %}
+{% block title %}My Profile – Sajilo Pasal{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+  <div class="col-12 col-lg-6">
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+
+        <h4 class="fw-bold mb-3">
+          <i class="bi bi-person-circle me-1"></i>My Profile
+        </h4>
+
+        <dl class="row mb-4">
+          <dt class="col-sm-3">Email</dt>
+          <dd class="col-sm-9">
+            {{ request.user.email }}
+            <span class="badge bg-success ms-1">Verified</span>
+          </dd>
+          <dt class="col-sm-3">Joined</dt>
+          <dd class="col-sm-9">{{ request.user.date_joined|date:"d M Y" }}</dd>
+        </dl>
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label class="form-label">First Name</label>
+            {{ form.first_name }}
+            {% if form.first_name.errors %}
+              <div class="text-danger small mt-1">{{ form.first_name.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Last Name</label>
+            {{ form.last_name }}
+            {% if form.last_name.errors %}
+              <div class="text-danger small mt-1">{{ form.last_name.errors.0 }}</div>
+            {% endif %}
+          </div>
+
+          <button type="submit" class="btn btn-sajilo">
+            <i class="bi bi-check-circle me-1"></i>Save Changes
+          </button>
+        </form>
+
+        <a href="{% url 'dashboard:home' %}" class="btn btn-link text-decoration-none ps-0 mt-3">
+          <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+        </a>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+

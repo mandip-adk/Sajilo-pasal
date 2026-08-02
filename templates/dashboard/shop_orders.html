@@ -6,7 +6,23 @@
   <a href="{% url 'dashboard:home' %}" class="text-decoration-none text-muted" style="font-size:0.82rem;">
     <i class="bi bi-arrow-left"></i> All shops
   </a>
-  <h4 class="fw-bold mb-3 mt-1">{{ shop.name }} — Orders</h4>
+  <h4 class="fw-bold mb-1 mt-1">{{ shop.name }} — Orders</h4>
+
+  <!-- Shop management action bar -->
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a href="{% url 'categories:list' shop.slug %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-tags me-1"></i>Categories &amp; Products
+    </a>
+    <a href="{% url 'qr_manager:detail' shop.slug %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-qr-code me-1"></i>QR Code
+    </a>
+    <a href="{% url 'shops:edit' shop.slug %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-pencil-square me-1"></i>Edit Shop
+    </a>
+    <a href="{{ shop.get_menu_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-box-arrow-up-right me-1"></i>View Public Menu
+    </a>
+  </div>
 
   <!-- Day 20: polls every 15s for orders newer than latest_seen_id.
        Empty on load and stays empty until the first poll finds

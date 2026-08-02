@@ -6,7 +6,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from django.db import transaction
 from django.utils import timezone
 
-from .forms import RegistrationForm, LoginForm, OTPVerificationForm
+from .forms import RegistrationForm, LoginForm, OTPVerificationForm, ProfileUpdateForm
 from .models import EmailVerificationOTP, DailyOTPAttemptLimit
 from .utils import send_otp_email
 
@@ -155,7 +155,7 @@ def logout_view(request):
 # ─────────────────────────────────────────────
 
 def _get_active_otp(user):
-   
+
     return EmailVerificationOTP.objects.filter(user=user, is_used=False).first()
 
 
@@ -307,3 +307,28 @@ def resend_otp_view(request):
     messages.success(request, "A new OTP has been sent to your email.")
     return redirect("accounts:verify_otp")
 
+
+# ─────────────────────────────────────────────
+# Profile
+# ─────────────────────────────────────────────
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def profile_view(request):
+    """
+    View and edit the logged-in owner's display name.
+    Email is read-only here (see ProfileUpdateForm docstring for why).
+    """
+    form = ProfileUpdateForm(request.POST or None, instance=request.user)
+
+    if request.method == "POST":
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.full_clean(exclude=["password"])
+            user.save()
+            messages.success(request, "Profile updated successfully.")
+            return redirect("accounts:profile")
+        else:
+            messages.error(request, "Please correct the errors below.")
+
+    return render(request, "accounts/profile.html", {"form": form})

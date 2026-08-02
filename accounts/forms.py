@@ -105,7 +105,7 @@ class LoginForm(forms.Form):
 
     def clean_email(self):
         return self.cleaned_data.get("email", "").lower().strip()
-    
+
 
 class OTPVerificationForm(forms.Form):
     """
@@ -113,7 +113,7 @@ class OTPVerificationForm(forms.Form):
     Numeric-only, exactly 6 characters, rendered as a single text field
     (kept simple rather than 6 separate boxes — easier on low-end devices).
     """
- 
+
     otp_code = forms.CharField(
         label="Verification Code",
         min_length=6,
@@ -127,10 +127,35 @@ class OTPVerificationForm(forms.Form):
             "autofocus": True,
         }),
     )
- 
+
     def clean_otp_code(self):
         code = self.cleaned_data.get("otp_code", "").strip()
         if not code.isdigit():
             raise forms.ValidationError("OTP must contain digits only.")
         return code
-    
+
+
+class ProfileUpdateForm(forms.ModelForm):
+    """
+    Lets an owner update their display name. Email is deliberately
+    NOT editable here — it's tied to OTP-based account verification
+    and used as the login identifier, so changing it needs its own
+    dedicated re-verification flow (not built yet — future enhancement).
+    """
+
+    class Meta:
+        model  = User
+        fields = ["first_name", "last_name"]
+        widgets = {
+            "first_name": forms.TextInput(attrs={
+                "class": "form-control",
+                "placeholder": "First name",
+                "autofocus": True,
+            }),
+            "last_name": forms.TextInput(attrs={
+                "class": "form-control",
+                "placeholder": "Last name",
+            }),
+        }
+
+        

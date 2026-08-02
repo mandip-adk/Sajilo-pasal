@@ -28,12 +28,6 @@
               <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start">
                   <h6 class="card-title mb-1">{{ product.name }}</h6>
-                  {# Day 18 fix: is_available (owner's explicit switch) and
-                     is_orderable (which also factors in stock) are two
-                     different signals — collapsing them into one badge
-                     made "out of stock" and "owner turned it off" look
-                     identical. Owner-set state takes priority, since
-                     that's the more deliberate signal of the two. #}
                   {% if not product.is_available %}
                     <span class="badge bg-secondary">Unavailable</span>
                   {% elif not product.is_orderable %}
