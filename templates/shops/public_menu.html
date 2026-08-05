@@ -117,6 +117,46 @@
     .btn-sajilo:hover  { background: #1e4d38; color: #fff; }
     .btn-sajilo.btn-success { background: #198754; }
 
+    /* ── On-card quantity stepper (replaces static "✓ Added" once an
+         item is in the cart, so quantity can be adjusted right from
+         the menu without opening the drawer) ── */
+    .product-add-control {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      min-height: 32px;
+    }
+    .qty-stepper {
+      background: var(--sajilo-primary);
+      border-radius: 6px;
+      padding: 0.15rem;
+    }
+    .qty-stepper-btn {
+      width: 26px; height: 26px;
+      border: none;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .qty-stepper-btn:hover  { background: rgba(255,255,255,0.3); }
+    .qty-stepper-btn:active { background: rgba(255,255,255,0.4); }
+    .qty-stepper-count {
+      display: inline-block;
+      min-width: 22px;
+      text-align: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
     /* ── Sticky bottom cart bar ── */
     #cart-bottom-bar {
       position: fixed;
@@ -241,15 +281,25 @@
                   <p class="product-price mb-0">Rs. {{ product.price }}</p>
 
                   {% if product.is_orderable %}
-                    <button class="btn-sajilo"
-                            data-product-id="{{ product.id }}"
-                            onclick="SajiloCart.add(
-                              '{{ product.id }}',
-                              '{{ product.name|escapejs }}',
-                              '{{ product.price }}'
-                            )">
-                      Add
-                    </button>
+                    <!-- Day-fix: this container is re-rendered by cart.js's
+                         _renderAddButtons() — plain "Add" button when not
+                         in cart, a +/- quantity stepper once it is. Data
+                         attributes carry what addItem() needs since the
+                         stepper markup is generated entirely in JS. -->
+                    <div class="product-add-control"
+                         id="control-{{ product.id }}"
+                         data-product-id="{{ product.id }}"
+                         data-product-name="{{ product.name|escapejs }}"
+                         data-product-price="{{ product.price }}">
+                      <button type="button" class="btn-sajilo"
+                              onclick="SajiloCart.add(
+                                '{{ product.id }}',
+                                '{{ product.name|escapejs }}',
+                                '{{ product.price }}'
+                              )">
+                        Add
+                      </button>
+                    </div>
                   {% else %}
                     <span class="badge-unavailable">
                       {% if not product.is_available %}Unavailable{% else %}Out of stock{% endif %}

@@ -1,11 +1,78 @@
+{% load static %}
 {% if new_count %}
-  <a href="{% url 'dashboard:shop_orders' shop.slug %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
-     class="alert alert-primary d-flex justify-content-between align-items-center text-decoration-none mb-3">
-    <span>
+  <div class="alert alert-primary d-flex justify-content-between align-items-center mb-3" id="new-orders-alert">
+    <a href="{% url 'dashboard:shop_orders' shop.slug %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
+       class="text-decoration-none flex-grow-1">
       <i class="bi bi-bell-fill me-1"></i>
       {{ new_count }} new order{{ new_count|pluralize }} — tap to refresh
-    </span>
-    <span class="text-nowrap">Refresh <i class="bi bi-arrow-clockwise"></i></span>
-  </a>
+      <span class="text-nowrap ms-2">Refresh <i class="bi bi-arrow-clockwise"></i></span>
+    </a>
+    <button type="button"
+            id="sajilo-mute-toggle"
+            class="btn btn-sm btn-outline-light ms-2 flex-shrink-0"
+            title="Toggle notification sound"
+            onclick="SajiloNotify.toggleMute(event)">
+      <i class="bi" id="sajilo-mute-icon"></i>
+    </button>
+  </div>
+
+  <script>
+    (function () {
+      const NEW_COUNT    = {{ new_count|default:0 }};
+      const MUTE_KEY     = "sajilo_notify_muted";
+      const LAST_KEY     = "sajilo_last_notified_" + "{{ shop.slug }}";
+      const AUDIO_SRC    = "{% static 'audio/notify.wav' %}";
+
+      window.SajiloNotify = window.SajiloNotify || {
+        isMuted: function () {
+          return localStorage.getItem(MUTE_KEY) === "1";
+        },
+        toggleMute: function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          const muted = this.isMuted();
+          localStorage.setItem(MUTE_KEY, muted ? "0" : "1");
+          this.updateIcon();
+        },
+        updateIcon: function () {
+          const icon = document.getElementById("sajilo-mute-icon");
+          if (!icon) return;
+          if (this.isMuted()) {
+            icon.className = "bi bi-volume-mute-fill";
+          } else {
+            icon.className = "bi bi-volume-up-fill";
+          }
+        },
+        play: function () {
+          try {
+            const audio = new Audio(AUDIO_SRC);
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(function () {
+                // Autoplay was blocked — browsers require a prior user
+                // gesture on the page before audio can play. Nothing to
+                // do here; the visual banner still shows the new order.
+              });
+            }
+          } catch (err) {
+            // Audio API unsupported or blocked — fail silently, the
+            // visual banner is the primary notification.
+          }
+        }
+      };
+
+      SajiloNotify.updateIcon();
+
+      let lastNotified = parseInt(localStorage.getItem(LAST_KEY) || "0", 10);
+
+      if (NEW_COUNT > lastNotified && !SajiloNotify.isMuted()) {
+        SajiloNotify.play();
+      }
+
+      if (NEW_COUNT !== lastNotified) {
+        localStorage.setItem(LAST_KEY, String(NEW_COUNT));
+      }
+    })();
+  </script>
 {% endif %}
 

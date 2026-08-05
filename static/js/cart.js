@@ -176,18 +176,40 @@ function _renderCartDrawer() {
   }
 }
 
+// Day-fix: product cards now show a live +/− quantity stepper once an
+// item is in the cart, instead of a static "✓ Added" label. Each
+// product card wraps its control in a `.product-add-control` container
+// (see public_menu.html) carrying the product's id/name/price as data
+// attributes — this function swaps that container's innerHTML between
+// a plain "Add" button (not in cart) and a stepper (in cart), so
+// quantity can be adjusted right from the menu without opening the
+// drawer.
 function _renderAddButtons() {
-  // Update all "Add" buttons on the menu to show "In Cart" state
-  document.querySelectorAll("[data-product-id]").forEach(btn => {
-    const pid = String(btn.dataset.productId);
-    if (_cart[pid]) {
-      btn.textContent = "✓ Added";
-      btn.classList.add("btn-success");
-      btn.classList.remove("btn-sajilo", "btn-outline-sajilo");
+  document.querySelectorAll(".product-add-control").forEach((control) => {
+    const pid   = String(control.dataset.productId);
+    const name  = control.dataset.productName || "";
+    const price = control.dataset.productPrice || "0";
+    const item  = _cart[pid];
+
+    if (item) {
+      control.innerHTML = `
+        <div class="qty-stepper d-flex align-items-center gap-2">
+          <button type="button" class="qty-stepper-btn"
+                  onclick="updateQuantity('${pid}', -1)"
+                  aria-label="Decrease quantity">−</button>
+          <span class="qty-stepper-count">${item.quantity}</span>
+          <button type="button" class="qty-stepper-btn"
+                  onclick="updateQuantity('${pid}', 1)"
+                  aria-label="Increase quantity">+</button>
+        </div>
+      `;
     } else {
-      btn.textContent = "Add";
-      btn.classList.remove("btn-success");
-      btn.classList.add("btn-sajilo");
+      control.innerHTML = `
+        <button type="button" class="btn-sajilo"
+                onclick="SajiloCart.add('${pid}', '${_escapeJsAttr(name)}', '${price}')">
+          Add
+        </button>
+      `;
     }
   });
 }
@@ -218,6 +240,15 @@ function _escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// Escapes a value that will sit inside a single-quoted JS string
+// literal built via template string (used when re-rendering the "Add"
+// button's onclick handler from a data attribute at runtime).
+function _escapeJsAttr(str) {
+  return String(str)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'");
 }
 
 // ── Order submission (Day 12) ───────────────────────────────────────
@@ -433,3 +464,5 @@ window.SajiloCart = {
   closeDrawer:    closeCartDrawer,
   submitOrder:    submitOrder,
 };
+
+
