@@ -1,0 +1,104 @@
+{% load static %}
+<div class="offcanvas offcanvas-start sp-sidebar" tabindex="-1" id="spSidebar" aria-labelledby="spSidebarLabel">
+
+  <div class="offcanvas-header d-lg-none">
+    <h5 class="offcanvas-title text-white" id="spSidebarLabel">
+      <i class="bi bi-shop me-2"></i>Sajilo Pasal
+    </h5>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+
+  <div class="sp-sidebar-brand d-none d-lg-flex">
+    <a href="{% url 'dashboard:home' %}">
+      <i class="bi bi-shop"></i><span>Sajilo Pasal</span>
+    </a>
+  </div>
+
+  <ul class="sp-sidebar-nav">
+    <li>
+      <a href="{% url 'dashboard:home' %}"
+         class="{% if request.resolver_match.url_name == 'home' %}active{% endif %}">
+        <i class="bi bi-house"></i><span>Dashboard</span>
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'dashboard:home' %}">
+        <i class="bi bi-shop-window"></i><span>Shops</span>
+      </a>
+    </li>
+
+    {% if shop %}
+      <li>
+        <a href="{% url 'categories:list' shop.slug %}">
+          <i class="bi bi-grid-3x3-gap"></i><span>Menu &amp; Products</span>
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'dashboard:shop_orders' shop.slug %}"
+           class="{% if request.resolver_match.url_name == 'shop_orders' %}active{% endif %}">
+          <i class="bi bi-receipt"></i><span>Orders</span>
+          {% if open_orders_count %}<span class="badge">{{ open_orders_count }}</span>{% endif %}
+        </a>
+      </li>
+      <li>
+        <a href="{% url 'qr_manager:detail' shop.slug %}">
+          <i class="bi bi-qr-code"></i><span>QR Codes</span>
+        </a>
+      </li>
+    {% endif %}
+
+    <li>
+      <a href="#" class="disabled" tabindex="-1">
+        <i class="bi bi-people"></i><span>Customers</span><span class="badge-soon">Soon</span>
+      </a>
+    </li>
+    <li>
+      <a href="#" class="disabled" tabindex="-1">
+        <i class="bi bi-bar-chart"></i><span>Reports</span><span class="badge-soon">Soon</span>
+      </a>
+    </li>
+
+    {% if shop %}
+      <li>
+        <a href="{% url 'shops:edit' shop.slug %}">
+          <i class="bi bi-gear"></i><span>Settings</span>
+        </a>
+      </li>
+    {% endif %}
+  </ul>
+
+  {% if shop %}
+    <div class="sp-sidebar-shopcard">
+      <div class="d-flex justify-content-between align-items-start mb-1">
+        <span class="shop-name">{{ shop.name }}</span>
+        {% if shop.is_active %}
+          <span class="badge-active">Active</span>
+        {% else %}
+          <span class="badge-active bg-secondary text-white">Inactive</span>
+        {% endif %}
+      </div>
+      <div>{{ shop.get_shop_type_display }}</div>
+      {% if shop.address %}<div>{{ shop.address }}</div>{% endif %}
+      <a href="{{ shop.get_menu_url }}" target="_blank" class="btn btn-sm btn-sajilo w-100 mt-2">
+        <i class="bi bi-box-arrow-up-right me-1"></i>View Public Menu
+      </a>
+      <a href="{% url 'shops:edit' shop.slug %}" class="btn btn-sm btn-outline-light w-100 mt-2">
+        <i class="bi bi-pencil-square me-1"></i>Edit Shop
+      </a>
+    </div>
+  {% endif %}
+
+  <div class="sp-sidebar-help">
+    <div class="fw-semibold">Need Help?</div>
+    <div class="mb-2">We're here to help you</div>
+    <a href="#" class="btn btn-sm btn-outline-light w-100">
+      <i class="bi bi-headset me-1"></i>Contact Support
+    </a>
+  </div>
+
+  <button type="button" id="sidebarCollapseToggle" class="sp-sidebar-collapse d-none d-lg-flex">
+    <i class="bi bi-chevron-left"></i><span>Collapse</span>
+  </button>
+
+</div>
+

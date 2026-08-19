@@ -1,56 +1,193 @@
 {% extends "base/base.html" %}
 {% block title %}Dashboard – Sajilo Pasal{% endblock %}
 {% block content %}
-<div class="container py-4" style="max-width: 720px;">
+<div class="sp-page" style="max-width: 1200px;">
 
-  <div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-4">
     <div>
-      <h4 class="fw-bold mb-0">Welcome, {{ request.user.short_name }}</h4>
-      <p class="text-muted mb-0" style="font-size:0.85rem;">Your shops</p>
+      <h4 class="fw-bold mb-1">Welcome back, {{ request.user.short_name }} 👋</h4>
+      <p class="text-muted mb-0">Here's what's happening across your shops today.</p>
     </div>
-    <a href="{% url 'shops:create' %}" class="btn btn-sajilo">
+    <a href="{% url 'shops:create' %}" class="btn btn-sajilo sp-action-btn">
       <i class="bi bi-plus-circle me-1"></i>New Shop
     </a>
   </div>
 
   {% if shops %}
-    <div class="row g-3">
+    <!-- Shop cards -->
+    <div class="row g-3 mb-4">
       {% for shop in shops %}
         <div class="col-md-6">
-          <a href="{% url 'dashboard:shop_orders' shop.slug %}" class="text-decoration-none">
-            <div class="card shadow-sm h-100">
-              <div class="card-body d-flex align-items-center gap-3">
-                {% if shop.logo %}
-                  <img src="{{ shop.logo.url }}" alt="{{ shop.name }}"
-                       style="width:48px;height:48px;border-radius:8px;object-fit:cover;">
-                {% else %}
-                  <div class="d-flex align-items-center justify-content-center"
-                       style="width:48px;height:48px;border-radius:8px;background:#e9ecef;">
-                    <i class="bi bi-shop text-secondary"></i>
-                  </div>
-                {% endif %}
-                <div class="flex-grow-1">
-                  <div class="fw-semibold text-dark">{{ shop.name }}</div>
-                  <div class="text-muted" style="font-size:0.8rem;">{{ shop.get_shop_type_display }}</div>
-                </div>
-                <div class="d-flex flex-column align-items-end gap-1">
-                  {% if shop.pending_count %}
-                    <span class="badge rounded-pill text-white" style="background: var(--sajilo-accent);">
-                      {{ shop.pending_count }} pending
-                    </span>
-                  {% endif %}
-                  {% if shop.low_stock_count %}
-                    <span class="badge rounded-pill bg-warning text-dark">
-                      <i class="bi bi-exclamation-triangle-fill"></i> {{ shop.low_stock_count }} low stock
+          <a href="{% url 'dashboard:shop_orders' shop.slug %}" class="sp-shop-switch-card {% if shop.is_active %}active{% endif %}">
+            {% if shop.logo %}
+              <img src="{{ shop.logo.url }}" alt="{{ shop.name }}" class="sp-shop-switch-logo">
+            {% else %}
+              <div class="sp-shop-switch-logo sp-shop-switch-logo-placeholder">
+                <i class="bi bi-shop"></i>
+              </div>
+            {% endif %}
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2">
+                <span class="sp-shop-switch-name">{{ shop.name }}</span>
+                {% if shop.is_active %}<span class="badge-active">Active</span>{% endif %}
+              </div>
+              <div class="sp-shop-switch-type">{{ shop.get_shop_type_display }}</div>
+            </div>
+            <i class="bi bi-chevron-right text-muted"></i>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- Stat cards -->
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-lg-3">
+        <div class="sp-stat-card">
+          <div class="sp-stat-icon sp-stat-icon-green"><i class="bi bi-bag"></i></div>
+          <div class="sp-stat-label">Today's Orders</div>
+          <div class="sp-stat-value">{{ todays_orders_count }}</div>
+          {% if orders_delta > 0 %}
+            <div class="sp-stat-delta up">+{{ orders_delta }} from yesterday <i class="bi bi-arrow-up-right"></i></div>
+          {% elif orders_delta < 0 %}
+            <div class="sp-stat-delta down">{{ orders_delta }} from yesterday <i class="bi bi-arrow-down-right"></i></div>
+          {% else %}
+            <div class="sp-stat-delta">Same as yesterday</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="col-6 col-lg-3">
+        <div class="sp-stat-card">
+          <div class="sp-stat-icon sp-stat-icon-blue"><i class="bi bi-currency-rupee"></i></div>
+          <div class="sp-stat-label">Today's Revenue</div>
+          <div class="sp-stat-value">Rs. {{ todays_revenue|floatformat:2 }}</div>
+          {% if revenue_delta_pct is not None %}
+            {% if revenue_delta >= 0 %}
+              <div class="sp-stat-delta up">+Rs. {{ revenue_delta|floatformat:2 }} ({{ revenue_delta_pct }}%) <i class="bi bi-arrow-up-right"></i></div>
+            {% else %}
+              <div class="sp-stat-delta down">Rs. {{ revenue_delta|floatformat:2 }} ({{ revenue_delta_pct }}%) <i class="bi bi-arrow-down-right"></i></div>
+            {% endif %}
+          {% else %}
+            <div class="sp-stat-delta">No orders yesterday</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="col-6 col-lg-3">
+        <div class="sp-stat-card">
+          <div class="sp-stat-icon sp-stat-icon-purple"><i class="bi bi-clipboard-check"></i></div>
+          <div class="sp-stat-label">Preparing Orders</div>
+          <div class="sp-stat-value">{{ preparing_count }}</div>
+          <div class="sp-stat-delta">{% if preparing_count %}In the kitchen{% else %}No pending orders{% endif %}</div>
+        </div>
+      </div>
+
+      <div class="col-6 col-lg-3">
+        <div class="sp-stat-card">
+          <div class="sp-stat-icon sp-stat-icon-orange"><i class="bi bi-graph-up-arrow"></i></div>
+          <div class="sp-stat-label">Total Customers</div>
+          <div class="sp-stat-value text-muted" style="font-size:1.3rem;">Coming Soon</div>
+          <div class="sp-stat-delta">&nbsp;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent orders + Revenue chart -->
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="sp-panel h-100">
+          <div class="sp-panel-tabs">
+            <span class="fw-bold">Recent Orders</span>
+            {% if recent_orders %}
+              <a href="{% url 'dashboard:shop_orders' recent_orders.0.shop.slug %}" class="text-decoration-none" style="font-size:0.9rem;">
+                View all orders <i class="bi bi-arrow-right"></i>
+              </a>
+            {% endif %}
+          </div>
+          <div class="sp-panel-body">
+            {% if recent_orders %}
+              <div class="sp-order-list">
+                {% for order in recent_orders %}
+                  <a href="{% url 'dashboard:order_detail' order.shop.slug order.id %}"
+                     class="sp-order-row {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}unpaid{% endif %}">
+                    <div class="sp-order-icon">
+                      <span class="order-num">{{ order.order_number_display }}</span>
+                      <i class="bi bi-cart3"></i>
+                    </div>
+                    <div class="sp-order-main">
+                      <div class="sp-order-title">
+                        {% if order.table_number %}{{ order.table_number }}{% else %}{{ order.order_number_display }}{% endif %}
+                      </div>
+                      <div class="sp-order-meta">
+                        <span>{{ order.created_at|date:"d M, g:i A" }}</span>
+                        <span>· {{ order.item_count }} item{{ order.item_count|pluralize }}</span>
+                      </div>
+                    </div>
+                    <div class="sp-order-right">
+                      <div class="status-price">
+                        <span class="badge
+                          {% if order.status == 'pending' %}bg-warning text-dark
+                          {% elif order.status == 'preparing' %}bg-info text-dark
+                          {% elif order.status == 'ready' %}bg-success
+                          {% else %}bg-secondary{% endif %}">
+                          {{ order.get_status_display }}
+                        </span>
+                        {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}
+                          <span class="badge bg-danger">Unpaid</span>
+                        {% elif order.payment_status == 'paid' %}
+                          <span class="badge bg-success-subtle text-success">Paid</span>
+                        {% endif %}
+                        <div class="price">Rs. {{ order.subtotal }}</div>
+                      </div>
+                      <i class="bi bi-chevron-right d-none d-md-inline text-muted"></i>
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+              <div class="text-center mt-3">
+                <a href="{% url 'dashboard:shop_orders' recent_orders.0.shop.slug %}" class="btn btn-outline-secondary sp-action-btn">
+                  <i class="bi bi-list-ul me-1"></i>View all orders
+                </a>
+              </div>
+            {% else %}
+              <div class="sp-panel-empty text-center text-muted">
+                <i class="bi bi-receipt display-4"></i>
+                <p class="mt-3">No orders yet.</p>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="sp-panel h-100">
+          <div class="sp-panel-tabs">
+            <span class="fw-bold">Revenue Overview (This Week)</span>
+          </div>
+          <div class="sp-panel-body">
+            <canvas id="revenueChart" height="180"></canvas>
+            <div class="sp-revenue-summary mt-3">
+              <div>
+                <div class="text-muted" style="font-size:0.82rem;">This Week</div>
+                <div class="fw-bold fs-5">Rs. {{ this_week_total|floatformat:2 }}</div>
+              </div>
+              <div>
+                <div class="text-muted" style="font-size:0.82rem;">Last Week</div>
+                <div class="fw-bold fs-5 d-flex align-items-center gap-2">
+                  Rs. {{ last_week_total|floatformat:2 }}
+                  {% if week_over_week_pct is not None %}
+                    <span class="badge {% if week_over_week_pct >= 0 %}bg-success-subtle text-success{% else %}bg-danger-subtle text-danger{% endif %}">
+                      {% if week_over_week_pct >= 0 %}+{% endif %}{{ week_over_week_pct }}%
                     </span>
                   {% endif %}
                 </div>
               </div>
             </div>
-          </a>
+          </div>
         </div>
-      {% endfor %}
+      </div>
     </div>
+
   {% else %}
     <div class="text-center py-5">
       <i class="bi bi-shop display-4 text-muted"></i>
@@ -59,7 +196,7 @@
         Create your first shop to start managing products,
         receiving orders, and generating QR menus.
       </p>
-      <a href="{% url 'shops:create' %}" class="btn btn-success">
+      <a href="{% url 'shops:create' %}" class="btn btn-sajilo">
         <i class="bi bi-plus-circle me-1"></i>
         Create Your First Shop
       </a>
@@ -67,5 +204,43 @@
   {% endif %}
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if shops %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+  (function () {
+    var ctx = document.getElementById('revenueChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: {{ chart_labels|safe }},
+        datasets: [{
+          data: {{ chart_values|safe }},
+          borderColor: '#2d6a4f',
+          backgroundColor: 'rgba(45,106,79,0.12)',
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: '#2d6a4f',
+          pointRadius: 4,
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { callback: function (v) { return 'Rs. ' + v; } },
+            grid: { color: 'rgba(0,0,0,0.05)' }
+          },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
 

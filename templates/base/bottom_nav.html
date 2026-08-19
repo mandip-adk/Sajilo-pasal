@@ -1,0 +1,29 @@
+<nav class="sp-bottom-nav d-md-none">
+  <a href="{% url 'dashboard:home' %}"
+     class="{% if request.resolver_match.url_name == 'home' %}active{% endif %}">
+    <i class="bi bi-house"></i><span>Dashboard</span>
+  </a>
+
+  {% if shop %}
+    <a href="{% url 'dashboard:shop_orders' shop.slug %}"
+       class="{% if request.resolver_match.url_name == 'shop_orders' %}active{% endif %}">
+      <i class="bi bi-receipt"></i><span>Orders</span>
+      {% if open_orders_count %}<span class="sp-bottom-badge">{{ open_orders_count }}</span>{% endif %}
+    </a>
+    <a href="{% url 'qr_manager:detail' shop.slug %}" class="sp-bottom-fab">
+      <i class="bi bi-qr-code"></i>
+    </a>
+    <a href="{% url 'categories:list' shop.slug %}">
+      <i class="bi bi-grid-3x3-gap"></i><span>Menu</span>
+    </a>
+  {% else %}
+    <a href="{% url 'dashboard:home' %}">
+      <i class="bi bi-shop-window"></i><span>Shops</span>
+    </a>
+  {% endif %}
+
+  <a href="#" data-bs-toggle="offcanvas" data-bs-target="#spSidebar" aria-controls="spSidebar">
+    <i class="bi bi-three-dots"></i><span>More</span>
+  </a>
+</nav>
+

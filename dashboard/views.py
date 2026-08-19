@@ -1,8 +1,12 @@
+import datetime
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Sum
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from orders.models import (
@@ -12,26 +16,15 @@ from orders.models import (
 from products.models import Product
 from shops.models import Shop
 
+
 ORDERS_PER_PAGE = 20
 
-# Day 17 — expresses Product.is_low_stock as a queryset filter rather
-# than calling the property in Python. Must be kept in sync with that
-# property's logic (0 < stock_quantity <= 5, and never true for
-# allow_over_order items since their stock isn't a hard constraint).
-# Doing it as a filter, not a Python loop over every product, is what
-# makes a per-shop badge count and a multi-shop aggregate both a
-# single query instead of loading every product into memory to check.
 LOW_STOCK_FILTER = dict(
     allow_over_order=False,
     stock_quantity__gt=0,
     stock_quantity__lte=5,
 )
 
-# Day 14 — UI presentation of Order.ALLOWED_TRANSITIONS. Kept separate
-# from the model's state machine on purpose: this is "what button do
-# we show and what does it say", not "what's a legal transition" —
-# that validation lives in Order.transition_status() itself and is
-# re-checked there regardless of what this dict offers.
 NEXT_STATUS_ACTIONS = {
     OrderStatus.PENDING: [
         (OrderStatus.PREPARING, "Start Preparing", "btn-primary"),
@@ -45,17 +38,19 @@ NEXT_STATUS_ACTIONS = {
     OrderStatus.CANCELLED: [],
 }
 
+WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
 
 @login_required
 def dashboard_home_view(request):
     """
-    Landing page after login — a shop switcher.
+    Landing page after login — shop switcher + at-a-glance stats.
 
-    Shop.owner is a plain FK (not OneToOne), so one account can run
-    more than one shop (e.g. a family running both a tea shop and a
-    kirana store). This lists every shop the logged-in user owns, with
-    a pending-order count per shop, linking into that shop's order
-    dashboard.
+    Everything here is aggregated across every shop the user owns
+    (owner-scoped, same defensive filter used throughout this file),
+    not scoped to one shop, since there's no single "current shop"
+    on this page.
     """
     shops = (
         Shop.objects
@@ -63,46 +58,91 @@ def dashboard_home_view(request):
         .order_by("name")
     )
 
-    # Pending count per shop in one query, rather than one COUNT query
-    # per shop card if the template called shop.orders.filter(...)
-    # directly — matters once an owner has several shops.
-    pending_counts = dict(
-        Order.objects
-        .filter(shop__owner=request.user, status=OrderStatus.PENDING)
-        .values("shop_id")
-        .annotate(count=Count("id"))
-        .values_list("shop_id", "count")
-    )
-    for shop in shops:
-        shop.pending_count = pending_counts.get(shop.id, 0)
+    owner_orders = Order.objects.filter(shop__owner=request.user)
 
-    # Day 17 — low-stock count per shop, same one-query-not-N pattern
-    # as pending_counts above.
-    low_stock_counts = dict(
-        Product.objects
-        .filter(category__shop__owner=request.user, **LOW_STOCK_FILTER)
-        .values("category__shop_id")
-        .annotate(count=Count("id"))
-        .values_list("category__shop_id", "count")
-    )
-    for shop in shops:
-        shop.low_stock_count = low_stock_counts.get(shop.id, 0)
+    today = timezone.localdate()
 
-    return render(request, "dashboard/home.html", {"shops": shops})
+    # ── Today's orders / revenue ──
+    todays_orders_qs = owner_orders.filter(created_at__date=today)
+    todays_orders_count = todays_orders_qs.count()
+    todays_revenue = todays_orders_qs.aggregate(total=Sum("subtotal"))["total"] or 0
+
+    # Yesterday, for the "+N from yesterday" / "+RsX (Y%)" deltas.
+    yesterday = today - datetime.timedelta(days=1)
+    yesterdays_orders_qs = owner_orders.filter(created_at__date=yesterday)
+    yesterdays_orders_count = yesterdays_orders_qs.count()
+    yesterdays_revenue = yesterdays_orders_qs.aggregate(total=Sum("subtotal"))["total"] or 0
+
+    orders_delta = todays_orders_count - yesterdays_orders_count
+    revenue_delta = todays_revenue - yesterdays_revenue
+    revenue_delta_pct = (
+        round((revenue_delta / yesterdays_revenue) * 100, 1)
+        if yesterdays_revenue else None
+    )
+
+    # ── Preparing orders (across all shops) ──
+    preparing_count = owner_orders.filter(status=OrderStatus.PREPARING).count()
+
+    # ── Recent orders (latest 3 across all shops) ──
+    recent_orders = (
+        owner_orders
+        .select_related("shop")
+        .annotate(item_count=Count("items"))
+        .order_by("-created_at")[:3]
+    )
+
+    # ── Revenue overview: current week (Mon–Sun) ──
+    start_of_week = today - datetime.timedelta(days=today.weekday())
+    end_of_week = start_of_week + datetime.timedelta(days=6)
+    start_of_last_week = start_of_week - datetime.timedelta(days=7)
+    end_of_last_week = start_of_week - datetime.timedelta(days=1)
+
+    this_week_by_day = dict(
+        owner_orders
+        .filter(created_at__date__range=(start_of_week, end_of_week))
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(total=Sum("subtotal"))
+        .values_list("day", "total")
+    )
+    chart_values = [
+        float(this_week_by_day.get(start_of_week + datetime.timedelta(days=i), 0) or 0)
+        for i in range(7)
+    ]
+
+    this_week_total = sum(chart_values)
+    last_week_total = float(
+        owner_orders
+        .filter(created_at__date__range=(start_of_last_week, end_of_last_week))
+        .aggregate(total=Sum("subtotal"))["total"] or 0
+    )
+    week_over_week_pct = (
+        round(((this_week_total - last_week_total) / last_week_total) * 100, 1)
+        if last_week_total else None
+    )
+
+    return render(request, "dashboard/home.html", {
+        "shops": shops,
+        "todays_orders_count": todays_orders_count,
+        "todays_revenue": todays_revenue,
+        "orders_delta": orders_delta,
+        "revenue_delta": revenue_delta,
+        "revenue_delta_pct": revenue_delta_pct,
+        "preparing_count": preparing_count,
+        "recent_orders": recent_orders,
+        "chart_labels": WEEKDAY_LABELS,
+        "chart_values": chart_values,
+        "this_week_total": this_week_total,
+        "last_week_total": last_week_total,
+        "week_over_week_pct": week_over_week_pct,
+    })
 
 
 @login_required
 def shop_orders_view(request, shop_slug):
     """
     Order list for a single shop.
-
-    Ownership check is a single joined queryset (shop__owner via the
-    get_object_or_404 below) — same defensive pattern used for
-    products/categories, so a request for another owner's shop 404s
-    instead of confirming the shop exists.
-
-    Filterable via ?status=pending|preparing|ready|cancelled. This
-    view is read-only — no status-change controls here, that's Day 14.
+    ...(docstring unchanged)...
     """
     shop = get_object_or_404(Shop, slug=shop_slug, owner=request.user)
 
@@ -110,14 +150,12 @@ def shop_orders_view(request, shop_slug):
     orders_qs = (
         Order.objects
         .filter(shop=shop)
-        .annotate(item_count=Count("items"))  # avoids per-row .items.count() N+1
+        .annotate(item_count=Count("items"))
         .order_by("-created_at")
     )
     if status_filter in OrderStatus.values:
         orders_qs = orders_qs.filter(status=status_filter)
 
-    # Per-status counts for the filter tabs, one query rather than one
-    # per tab.
     status_counts = dict(
         Order.objects
         .filter(shop=shop)
@@ -130,17 +168,19 @@ def shop_orders_view(request, shop_slug):
         for value, label in OrderStatus.choices
     ]
 
+    # Day 21 — sidebar / bottom-nav "Orders" badge count. Sum of the
+    # three actionable states; deliberately excludes READY/CANCELLED-
+    # adjacent double counting logic, just the three open buckets.
+    open_orders_count = sum(
+        status_counts.get(status, 0)
+        for status in (OrderStatus.PENDING, OrderStatus.PREPARING, OrderStatus.READY)
+    )
+
     paginator = Paginator(orders_qs, ORDERS_PER_PAGE)
     page_obj = paginator.get_page(request.GET.get("page"))
 
-    # Day 17 — feeds the low-stock banner at the top of this page.
     low_stock_count = Product.objects.filter(category__shop=shop, **LOW_STOCK_FILTER).count()
 
-    # Day 20 — baseline for "new orders since page load" polling.
-    # Using the max Order id (not created_at) as the cutoff sidesteps
-    # timezone/precision edge cases and is a cheap indexed lookup —
-    # order_number is only unique per-shop so it can't serve as a
-    # global cutoff, but the PK can.
     latest_seen_id = Order.objects.filter(shop=shop).aggregate(
         Max("id")
     )["id__max"] or 0
@@ -153,6 +193,7 @@ def shop_orders_view(request, shop_slug):
         "total_orders": Order.objects.filter(shop=shop).count(),
         "low_stock_count": low_stock_count,
         "latest_seen_id": latest_seen_id,
+        "open_orders_count": open_orders_count,
     })
 
 

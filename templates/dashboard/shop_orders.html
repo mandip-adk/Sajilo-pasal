@@ -1,33 +1,14 @@
 {% extends "base/base.html" %}
 {% block title %}{{ shop.name }} Orders – Sajilo Pasal{% endblock %}
 {% block content %}
-<div class="container py-4" style="max-width: 900px;">
+<div class="sp-page">
 
-  <a href="{% url 'dashboard:home' %}" class="text-decoration-none text-muted" style="font-size:0.82rem;">
-    <i class="bi bi-arrow-left"></i> All shops
-  </a>
-  <h4 class="fw-bold mb-1 mt-1">{{ shop.name }} — Orders</h4>
+  <h4 class="fw-bold mb-3">
+    {{ shop.name }} — Orders
+    {% if shop.is_active %}<span class="badge bg-success-subtle text-success ms-1" style="font-size:0.7rem;">Open</span>{% endif %}
+  </h4>
 
-  <!-- Shop management action bar -->
-  <div class="d-flex flex-wrap gap-2 mb-3">
-    <a href="{% url 'categories:list' shop.slug %}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-tags me-1"></i>Categories &amp; Products
-    </a>
-    <a href="{% url 'qr_manager:detail' shop.slug %}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-qr-code me-1"></i>QR Code
-    </a>
-    <a href="{% url 'shops:edit' shop.slug %}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-pencil-square me-1"></i>Edit Shop
-    </a>
-    <a href="{{ shop.get_menu_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-box-arrow-up-right me-1"></i>View Public Menu
-    </a>
-  </div>
-
-  <!-- Day 20: polls every 15s for orders newer than latest_seen_id.
-       Empty on load and stays empty until the first poll finds
-       something — a non-intrusive banner, not an auto-swapping list,
-       so a poll landing mid-click doesn't yank the page around. -->
+  <!-- Day 20: polls every 15s for orders newer than latest_seen_id. -->
   <div id="new-orders-banner"
        hx-get="{% url 'dashboard:new_orders_check' shop.slug %}?since={{ latest_seen_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}"
        hx-trigger="every 15s"
@@ -45,98 +26,110 @@
     </a>
   {% endif %}
 
-  <!-- Status filter tabs -->
-  <ul class="nav nav-pills mb-3 flex-nowrap overflow-auto" style="font-size:0.85rem;">
-    <li class="nav-item">
-      <a class="nav-link {% if not status_filter %}active{% endif %}"
-         href="{% url 'dashboard:shop_orders' shop.slug %}">
-        All ({{ total_orders }})
-      </a>
-    </li>
-    {% for tab in status_tabs %}
-      <li class="nav-item">
-        <a class="nav-link text-nowrap {% if status_filter == tab.value %}active{% endif %}"
-           href="?status={{ tab.value }}">
-          {{ tab.label }} ({{ tab.count }})
-        </a>
-      </li>
-    {% endfor %}
-  </ul>
+  <!-- Unified panel: tabs + order list -->
+  <div class="sp-panel">
 
-  {% if page_obj %}
-    <div class="list-group">
-      {% for order in page_obj %}
-        <a href="{% url 'dashboard:order_detail' shop.slug order.id %}"
-           class="list-group-item list-group-item-action">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <div class="fw-semibold">
-                {{ order.order_number_display }}
-                {% if order.table_number %}· {{ order.table_number }}{% endif %}
-              </div>
-              <div class="text-muted" style="font-size:0.8rem;">
-                {{ order.item_count }} item{{ order.item_count|pluralize }}
-                · {{ order.created_at|date:"d M, g:i A" }}
-                {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}
-                  <span class="badge bg-danger ms-1" style="font-size:0.68rem;">Unpaid</span>
-                {% endif %}
-              </div>
-            </div>
-            <div class="text-end">
-              <span class="badge
-                {% if order.status == 'pending' %}bg-warning text-dark
-                {% elif order.status == 'preparing' %}bg-info text-dark
-                {% elif order.status == 'ready' %}bg-success
-                {% else %}bg-secondary{% endif %}">
-                {{ order.get_status_display }}
-              </span>
-              <div class="fw-bold mt-1">Rs. {{ order.subtotal }}</div>
-            </div>
-          </div>
+    <div class="sp-panel-tabs">
+      <div class="sp-tabs">
+        <a class="{% if not status_filter %}active{% endif %}"
+           href="{% url 'dashboard:shop_orders' shop.slug %}">
+          All ({{ total_orders }})
         </a>
-      {% endfor %}
+        {% for tab in status_tabs %}
+          <a class="{% if status_filter == tab.value %}active{% endif %}"
+             href="?status={{ tab.value }}">
+            {{ tab.label }} ({{ tab.count }})
+          </a>
+        {% endfor %}
+      </div>
+      <button type="button" class="sp-filter-btn">
+        <i class="bi bi-funnel"></i>Filter
+      </button>
     </div>
 
-    {% if page_obj.has_other_pages %}
-      <nav class="mt-3">
-        <ul class="pagination justify-content-center" style="font-size:0.85rem;">
-          {% if page_obj.has_previous %}
-            <li class="page-item">
-              <a class="page-link"
-                 href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">
-                Previous
-              </a>
-            </li>
-          {% endif %}
-          <li class="page-item disabled">
-            <span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-          </li>
-          {% if page_obj.has_next %}
-            <li class="page-item">
-              <a class="page-link"
-                 href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">
-                Next
-              </a>
-            </li>
-          {% endif %}
-        </ul>
-      </nav>
+    {% if page_obj %}
+      <div class="sp-panel-body">
+        <div class="sp-order-list">
+          {% for order in page_obj %}
+            <a href="{% url 'dashboard:order_detail' shop.slug order.id %}"
+               class="sp-order-row {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}unpaid{% endif %}">
+
+              <div class="sp-order-icon">
+                <span class="order-num">{{ order.order_number_display }}</span>
+                <i class="bi bi-cart3"></i>
+              </div>
+
+              <div class="sp-order-main">
+                <div class="sp-order-title">
+                  {% if order.table_number %}{{ order.table_number }}{% else %}{{ order.order_number_display }}{% endif %}
+                </div>
+                <div class="sp-order-meta">
+                  <span><i class="bi bi-calendar3 me-1"></i>{{ order.created_at|date:"d M, g:i A" }}</span>
+                  <span><i class="bi bi-receipt me-1"></i>{{ order.item_count }} item{{ order.item_count|pluralize }}</span>
+                </div>
+              </div>
+
+              {% if order.payment_status == 'unpaid' and order.status != 'cancelled' %}
+                <div class="sp-order-unpaid-pill">Unpaid</div>
+              {% endif %}
+
+              <div class="sp-order-right">
+                <div class="status-price">
+                  <span class="badge
+                    {% if order.status == 'pending' %}bg-warning text-dark
+                    {% elif order.status == 'preparing' %}bg-info text-dark
+                    {% elif order.status == 'ready' %}bg-success
+                    {% else %}bg-secondary{% endif %}">
+                    {{ order.get_status_display }}
+                  </span>
+                  <div class="price">Rs. {{ order.subtotal }}</div>
+                </div>
+                <i class="bi bi-chevron-right d-none d-md-inline text-muted"></i>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+
+        {% if page_obj.has_other_pages %}
+          <nav class="mt-3">
+            <ul class="pagination justify-content-center" style="font-size:0.85rem;">
+              {% if page_obj.has_previous %}
+                <li class="page-item">
+                  <a class="page-link"
+                     href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">
+                    Previous
+                  </a>
+                </li>
+              {% endif %}
+              <li class="page-item disabled">
+                <span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+              </li>
+              {% if page_obj.has_next %}
+                <li class="page-item">
+                  <a class="page-link"
+                     href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}">
+                    Next
+                  </a>
+                </li>
+              {% endif %}
+            </ul>
+          </nav>
+        {% endif %}
+      </div>
+
+    {% else %}
+      <div class="sp-panel-empty text-center text-muted">
+        <i class="bi bi-receipt display-4"></i>
+        <p class="mt-3">No orders {% if status_filter %}with this status{% endif %} yet.</p>
+      </div>
     {% endif %}
 
-  {% else %}
-    <div class="text-center py-5 text-muted">
-      <i class="bi bi-receipt display-4"></i>
-      <p class="mt-3">No orders {% if status_filter %}with this status{% endif %} yet.</p>
-    </div>
-  {% endif %}
+  </div>
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<!-- Day 20 — HTMX for the new-orders polling banner above.
-     CHECK base/base.html before deploying: if HTMX is already loaded
-     globally there, remove this script tag — loading it twice per
-     page is wasteful (not broken, just double-fetches the library). -->
 <script src="https://unpkg.com/htmx.org@2.0.3"></script>
 {% endblock %}
+
